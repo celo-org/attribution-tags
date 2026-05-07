@@ -21,16 +21,17 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "ox": "^0.10.0",
-    "viem": "^2.21.0"
+    "ox": "^0.10.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
+    "viem": "^2.21.0",
     "vitest": "^2.1.0"
   },
   "peerDependencies": {
@@ -41,6 +42,7 @@
       "optional": true
     }
   },
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },

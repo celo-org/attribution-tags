@@ -92,11 +92,14 @@ This is stricter than ERC-8021 itself but matches the format Celo distributes (`
 toDataSuffix(code: string | readonly string[]): Hex
 fromDataSuffix(suffix: Hex): { codes: string[]; schemaId: number } | null
 verifyTx({ client, hash }): Promise<{ codes: string[]; schemaId: number } | null>
+codeFromHostname(hostname: string): string  // → "celo_xxxxxxxx"
 
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
 
 `verifyTx` never throws — RPC errors return `null`.
+
+`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 4 bytes hex → `celo_` prefix. Same input → same code, every time. See `docs/minipay-attribution.md` for the design.
 
 ## License
 

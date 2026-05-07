@@ -71,6 +71,29 @@ toDataSuffix(["minipay", "celo_b7k3p9da"]);
 
 The on-chain pipeline reads both. The platform code lets us aggregate by surface; your code identifies your specific app.
 
+### MiniPay mini apps — auto-derive
+
+If you're shipping a MiniPay mini app, you don't need to register or be issued a code. The SDK derives a deterministic per-app code from your hostname (e.g. `mondeto.app` → `celo_b057492a`), which means same hostname → same code, every time, anywhere it runs:
+
+```ts
+import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+
+const tag = toDataSuffix(["minipay", codeFromHostname(location.hostname)]);
+
+await wallet.sendTransaction({ to, value, data: tag });
+```
+
+That's the entire integration. No backend, no key, no form. The hostname-to-code mapping is a one-way SHA-256 prefix; you can verify it offline:
+
+```bash
+printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
+# → b057492a (matches codeFromHostname("mondeto.app"))
+```
+
+`codeFromHostname` lowercases the hostname and strips a leading `www.`, so `WWW.Mondeto.App` and `mondeto.app` map to the same code. Subdomains are kept (so `app.mondeto.app` ≠ `mondeto.app`), to avoid collisions on shared hosts like `*.vercel.app`.
+
+Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step. See `docs/minipay-attribution.md` for the design rationale.
+
 ## Step 3 — Verify it worked
 
 Once you've sent a tagged transaction, decode it:

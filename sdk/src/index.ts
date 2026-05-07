@@ -1,4 +1,5 @@
 import { Attribution } from "ox/erc8021";
+import { Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
 import type { Hash, PublicClient } from "viem";
 
@@ -68,4 +69,27 @@ export async function verifyTx(
   } catch {
     return null;
   }
+}
+
+// MiniPay flow: derive a deterministic per-app code from the hostname,
+// so apps can self-attribute with no registration step. See
+// docs/minipay-attribution.md for the design discussion.
+const HOSTNAME_RE = /^[a-z0-9.-]+$/;
+
+export function codeFromHostname(hostname: string): string {
+  if (typeof hostname !== "string" || hostname.length === 0) {
+    throw new Error("codeFromHostname: hostname is required");
+  }
+  let normalized = hostname.toLowerCase();
+  if (normalized.startsWith("www.")) {
+    normalized = normalized.slice(4);
+  }
+  if (!HOSTNAME_RE.test(normalized)) {
+    throw new Error(
+      `codeFromHostname: invalid hostname ${JSON.stringify(hostname)}`,
+    );
+  }
+  const digest = OxHash.sha256(Bytes.fromString(normalized), { as: "Hex" });
+  // digest is 0x-prefixed 64-char hex; first 4 bytes = 8 hex chars after the prefix
+  return `celo_${digest.slice(2, 10)}`;
 }

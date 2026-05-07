@@ -1,6 +1,14 @@
 # @celo-org/builder-codes
 
-ERC-8021 builder-code attribution for Celo. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
+ERC-8021 builder-code attribution **on Celo**. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
+
+Built for, in priority order:
+
+1. **MiniPay** apps
+2. **Proof of Ship** cohort projects
+3. **Celo ecosystem** projects more broadly
+
+The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSepolia`. Configure your viem clients accordingly.
 
 ## Install
 
@@ -52,8 +60,8 @@ const result = await verifyTx({ client, hash: "0x..." });
 ```ts
 import { fromDataSuffix } from "@celo-org/builder-codes";
 
-fromDataSuffix("0x62617365617070070080218021802180218021802180218021");
-// → { codes: ["baseapp"], schemaId: 0 }
+fromDataSuffix("0x63656c6f040080218021802180218021802180218021");
+// → { codes: ["celo"], schemaId: 0 }
 ```
 
 ## Wire format
@@ -76,7 +84,7 @@ The marker constant is exported as `ERC_8021_MARKER`.
 - are empty or longer than 32 bytes
 - contain anything outside `[a-z0-9_]` (no uppercase, no spaces, no commas)
 
-This is stricter than ERC-8021 itself but matches the format Celo distributes (`celo_xxxxxxxx`) and standard platform codes like `minipay`, `proofofship`, `baseapp`.
+This is stricter than ERC-8021 itself but matches the format Celo distributes (`celo_xxxxxxxx`) and the platform codes used in the Celo ecosystem (`minipay`, `proofofship`).
 
 ## API
 

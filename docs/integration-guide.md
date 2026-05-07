@@ -2,13 +2,15 @@
 
 **Lena Hierzi, DevRel Lead, Celo Core Co — 7 May 2026**
 
-A 1-pager for builders. Tag your transactions so the on-chain attribution pipeline can see them, in two steps.
+A 1-pager for builders shipping on Celo. Tag your transactions so the on-chain attribution pipeline can see them, in two steps.
+
+**Who this is for:** MiniPay app builders, Proof of Ship cohort projects, and Celo ecosystem projects that want their on-chain activity attributed to them. Celo only — the rest of this guide assumes you're sending transactions to Celo Mainnet (or Celo Sepolia for testing).
 
 ## What this is
 
-ERC-8021 is an Ethereum standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
+ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-Celo's `@celo-org/builder-codes` is a thin wrapper over [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) that gives you three calls:
+`@celo-org/builder-codes` is a thin wrapper over [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) that gives you three calls:
 
 ```ts
 toDataSuffix(code | [codes])  // → Hex

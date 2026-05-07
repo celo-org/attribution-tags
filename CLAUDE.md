@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A lean ERC-8021 builder-code attribution system for Celo. Two ship pieces:
+A lean ERC-8021 builder-code attribution system for Celo. Audience, in priority order: MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly. Celo-only — do not pitch interop with other chains as a feature. Two ship pieces:
 
 1. **SDK** (`sdk/`) — npm package `@celo-org/builder-codes`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
 2. **Distribution server** (`distribution-server/`) — Next.js form on Vercel. Builders enter Talent Protocol passport ID, Telegram, email; backend validates against TP API, generates a random `celo_xxxxxxxx` code, stores it in Airtable, returns the code.
@@ -44,7 +44,7 @@ These are deferred. Don't add them when iterating.
 - All payments referenced in any agreement = USDT on Celo.
 - Talent Protocol API: `X-API-KEY` header. Base URL `https://api.talentprotocol.com/api/v2`. Endpoint we use: `/passports/{id}` (accepts numeric ID, wallet address, or username).
 - The verifier function fetches a tx via viem and decodes the suffix; if no marker present, returns null. No throwing.
-- Vector tests are the source of truth for wire-format correctness. If `toDataSuffix("baseapp")` doesn't produce Base's reference vector `0x07626173656170700080218021802180218021802180218021`, something is wrong with the `ox` import — fix before doing anything else.
+- Vector tests are the source of truth for wire-format correctness. The canonical ERC-8021 reference vector — `toDataSuffix("baseapp")` → `0x62617365617070070080218021802180218021802180218021` — is the conformance check used by every ERC-8021 implementation (it's the example string in the ox docs); if ours doesn't match, something is wrong with the `ox` import. This is a standard-conformance check, not a positioning statement — never frame builder-codes as "Base-compatible."
 
 ## Layout
 

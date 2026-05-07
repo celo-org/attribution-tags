@@ -5,6 +5,9 @@ import type { Hash, PublicClient } from "viem";
 export const ERC_8021_MARKER =
   "0x80218021802180218021802180218021" as const;
 
+// Intentionally stricter than ERC-8021. Celo distributes codes as
+// celo_xxxxxxxx and uses lowercase platform codes (minipay, proofofship).
+// Don't loosen without coordinating with the off-chain registry.
 const CODE_RE = /^[a-z0-9_]{1,32}$/;
 
 function normalizeCodes(input: string | readonly string[]): string[] {
@@ -44,10 +47,7 @@ export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
   }
   if (!attr) return null;
 
-  const rawCodes = (attr as { codes?: readonly string[] }).codes ?? [];
-  const codes = rawCodes.flatMap((c) =>
-    typeof c === "string" && c.includes(",") ? c.split(",") : [c],
-  );
+  const codes = [...((attr as { codes?: readonly string[] }).codes ?? [])];
   const schemaId = Attribution.getSchemaId(attr);
 
   return { codes, schemaId };

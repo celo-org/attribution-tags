@@ -6,7 +6,7 @@
 
 Ship ERC-8021 attribution **on Celo** in time for May Proof of Ship. Audience, in priority order: **MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly**. The system is Celo-only — no cross-chain interop story; ERC-8021 is the standard we conform to, nothing more.
 
-Lean scope: SDK + dbt model + distribution mechanism. No on-chain registry, no claim UI, no payouts. Those land later.
+Lean scope: SDK + dbt model + distribution mechanism. No on-chain registry and no claim UI in this phase.
 
 ## Update — 7 May 2026
 
@@ -123,4 +123,4 @@ Tiny Next.js app on Vercel (or Cloudflare Workers).
 
 ## Out of scope (deferred)
 
-NFT registry, on-chain claim, payouts, leaderboard frontend, governance multisig, smart-wallet capability work. All previously sketched; revisit after May Proof of Ship lands.
+NFT registry, on-chain claim flow, leaderboard frontend, governance multisig, smart-wallet capability work. All previously sketched; revisit after May Proof of Ship lands.

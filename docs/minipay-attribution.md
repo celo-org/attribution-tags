@@ -35,6 +35,8 @@ This is a meaningfully different design from the Talent Protocol / Airtable path
 
 Result for `mondeto.app` looks like `celo_b057492a`. Same input, same output, anywhere it runs. Subdomains produce different codes (so `mondeto.vercel.app` ≠ `app.blockfall.xyz`, per Vinay's constraint).
 
+**Preview / staging hostnames attribute distinctly, by design.** A Vercel preview URL like `mondeto-fe-git-feat-buy-pixels.vercel.app` will produce its own `celo_xxxxxxxx`, different from the production `mondeto.app` code. This is the right behavior — preview deployments are a different environment, and conflating them with prod would let staging traffic skew real attribution. Teams that want to see all environments under one code should aggregate on the **hostname → app-id** mapping at the dashboard layer (e.g. group `mondeto.app`, `*.vercel.app/<this-team>`, and any custom staging domain under one app row), not at the SDK layer.
+
 The full multi-code suffix every MiniPay mini app sends becomes: **`minipay,celo_b057492a`** — platform-level attribution to MiniPay plus app-level attribution to the app, in a single tag, derived entirely automatically.
 
 ## Pinned hash vectors (for testing)

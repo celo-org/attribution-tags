@@ -94,6 +94,52 @@ printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
 
 Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step. See `docs/minipay-attribution.md` for the design rationale.
 
+### SSR-safety (Next.js, Remix, SvelteKit)
+
+`codeFromHostname` reads `window.location.hostname` indirectly through whatever you pass it — but in a server-rendered framework, anything that touches `window` during render will throw with `ReferenceError: window is not defined`. Two safe patterns:
+
+**Pattern A — guarded helper, called from a client component / hook:**
+
+```ts
+// lib/builder-code.ts
+import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+import type { Hex } from "viem";
+
+let cached: Hex | null = null;
+
+export function getBuilderCodeSuffix(): Hex | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (cached) return cached;
+  try {
+    cached = toDataSuffix([
+      "minipay",
+      codeFromHostname(window.location.hostname),
+    ]) as Hex;
+    return cached;
+  } catch {
+    return undefined;
+  }
+}
+```
+
+The `typeof window === "undefined"` check makes the function a no-op on the server. The cache means SHA-256 runs once per session, not once per render.
+
+**Pattern B — derive at module init in a `"use client"` file:**
+
+```tsx
+"use client";
+import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+
+export const BUILDER_SUFFIX = toDataSuffix([
+  "minipay",
+  codeFromHostname(window.location.hostname),
+]);
+```
+
+Only do this in a file marked `"use client"`. Importing it from a server component will throw at build time.
+
+If your wagmi version supports the `dataSuffix` parameter on `useWriteContract` (or you wire it through your own contract-write helper), pass the result of `getBuilderCodeSuffix()` into it. wagmi handles the rest — no manual calldata concatenation needed.
+
 ## Step 3 — Verify it worked
 
 Once you've sent a tagged transaction, decode it:

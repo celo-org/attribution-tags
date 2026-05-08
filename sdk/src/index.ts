@@ -6,6 +6,11 @@ import type { Hash, PublicClient } from "viem";
 export const ERC_8021_MARKER =
   "0x80218021802180218021802180218021" as const;
 
+// Convenience alias for consumers using viem's Hex elsewhere — the
+// types are structurally identical (both are `0x${string}`), but
+// importing this from the SDK documents the intent at the call site.
+export type BuilderCodeSuffix = Hex.Hex;
+
 // Intentionally stricter than ERC-8021. Celo distributes codes as
 // celo_xxxxxxxx and uses lowercase platform codes (minipay, proofofship).
 // Don't loosen without coordinating with the off-chain registry.

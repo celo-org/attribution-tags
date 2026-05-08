@@ -14,9 +14,15 @@ The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSe
 
 ```bash
 npm install @celo-org/builder-codes viem
+# or
+pnpm add @celo-org/builder-codes viem
+# or
+yarn add @celo-org/builder-codes viem
 ```
 
 `viem` is an optional peer dep, only needed if you call `verifyTx`.
+
+> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-org-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
 
 ## Usage
 
@@ -94,6 +100,7 @@ fromDataSuffix(suffix: Hex): { codes: string[]; schemaId: number } | null
 verifyTx({ client, hash }): Promise<{ codes: string[]; schemaId: number } | null>
 codeFromHostname(hostname: string): string  // → "celo_xxxxxxxx"
 
+type BuilderCodeSuffix = Hex  // alias for the toDataSuffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
 

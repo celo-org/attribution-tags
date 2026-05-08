@@ -44,7 +44,7 @@ await wallet.sendTransaction({
 });
 ```
 
-**A note on multi-code:** ERC-8021 lets one suffix carry several codes — `toDataSuffix(["foo", "bar"])` is supported by the wire format. But each code should only be added by the entity it represents. Your app emits its own code; platform codes like `minipay` are added by the platform's wallet, not by your app. See `docs/integration-guide.md` for the full layering rule.
+**A note on multi-code:** ERC-8021 lets one suffix carry several codes — `toDataSuffix(["foo", "bar"])` is supported by the wire format. But each code should only be added by the entity it represents. Your app emits its own code; platform codes like `minipay` are added by the platform's wallet, not by your app. See [`BUILDERS.md`](../BUILDERS.md) for the full layering rule.
 
 ### Verify a transaction
 

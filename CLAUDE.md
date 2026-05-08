@@ -51,25 +51,22 @@ These are deferred. Don't add them when iterating.
 ```
 .
 ├── CLAUDE.md                          # this file
-├── README.md                          # human-facing overview
+├── README.md                          # short overview routing to the two audience READMEs
+├── BUILDERS.md                        # for app builders shipping on Celo
+├── INDEXERS.md                        # for parsers / indexers / Dune model authors
 ├── docs/
-│   ├── implementation-plan.md         # the sharable plan
-│   └── integration-guide.md           # the 1-pager builders read
-├── sdk/                               # @celo-org/builder-codes
+│   ├── implementation-plan.md         # the sharable plan + May 7 update
+│   ├── minipay-attribution.md         # the auto-derive design rationale
+│   └── integration-reports/
+│       └── mondeto.md                 # first real consumer integration report
+├── sdk/                               # @gigahierz/builder-codes (eventual @celo-org/builder-codes)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tsup.config.ts
 │   ├── src/index.ts
-│   ├── tests/vectors.test.ts
+│   ├── tests/{vectors,verify-tx,hostname}.test.ts
 │   └── README.md
-└── distribution-server/               # Next.js Vercel app
-    ├── package.json
-    ├── README.md
-    └── src/
-        ├── pages/api/claim.ts
-        └── lib/
-            ├── code-gen.ts
-            └── talent-protocol.ts
+└── distribution-server/               # paused — see May 7 update in implementation-plan.md
 ```
 
 ## How to work in this repo

@@ -10,7 +10,7 @@ A 1-pager for builders shipping on Celo. Tag your transactions so the on-chain a
 
 ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-`@celo-org/builder-codes` is a thin wrapper over [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) that gives you three calls:
+`@gigahierz/builder-codes` (pre-release) is a thin wrapper over [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) that gives you three calls. It will move to `@celo-org/builder-codes` at the stable 0.1.0 once Celo Core publish rights are in place; until then, install from the personal scope on the `next` tag.
 
 ```ts
 toDataSuffix(code | [codes])  // → Hex
@@ -29,13 +29,14 @@ How codes are issued is being finalised; you'll get yours through your usual onb
 Install the SDK:
 
 ```bash
-npm install @celo-org/builder-codes viem
+npm install @gigahierz/builder-codes@next viem
+# or pnpm add / yarn add — same args
 ```
 
 Append the suffix to the `data` field of any transaction you send:
 
 ```ts
-import { toDataSuffix } from "@celo-org/builder-codes";
+import { toDataSuffix } from "@gigahierz/builder-codes";
 import { createWalletClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -77,7 +78,7 @@ The combined on-chain shape `minipay,celo_xxxxxxxx` is what eventually appears o
 If you're shipping a MiniPay mini app, you don't need to register or be issued a code. The SDK derives a deterministic per-app code from your hostname (e.g. `mondeto.app` → `celo_b057492a`), which means same hostname → same code, every time, anywhere it runs:
 
 ```ts
-import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+import { toDataSuffix, codeFromHostname } from "@gigahierz/builder-codes";
 
 const tag = toDataSuffix(codeFromHostname(location.hostname));
 // → suffix encoding just your celo_xxxxxxxx code
@@ -106,7 +107,7 @@ Apps not in MiniPay's approved-app list will still produce a code on-chain, but 
 
 ```ts
 // lib/builder-code.ts
-import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+import { toDataSuffix, codeFromHostname } from "@gigahierz/builder-codes";
 import type { Hex } from "viem";
 
 let cached: Hex | null = null;
@@ -131,7 +132,7 @@ The `typeof window === "undefined"` check makes the function a no-op on the serv
 
 ```tsx
 "use client";
-import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
+import { toDataSuffix, codeFromHostname } from "@gigahierz/builder-codes";
 
 export const BUILDER_SUFFIX = toDataSuffix(
   codeFromHostname(window.location.hostname),
@@ -147,7 +148,7 @@ If your wagmi version supports the `dataSuffix` parameter on `useWriteContract` 
 Once you've sent a tagged transaction, decode it:
 
 ```ts
-import { verifyTx } from "@celo-org/builder-codes";
+import { verifyTx } from "@gigahierz/builder-codes";
 import { createPublicClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -166,7 +167,7 @@ console.log(result); // { codes: ["celo_b7k3p9da"], schemaId: 0 }
 For offline debugging without an RPC roundtrip:
 
 ```ts
-import { fromDataSuffix } from "@celo-org/builder-codes";
+import { fromDataSuffix } from "@gigahierz/builder-codes";
 fromDataSuffix(rawCalldata);
 ```
 

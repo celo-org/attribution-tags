@@ -115,14 +115,11 @@ printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
 
 The full design rationale (why plain SHA-256 over HMAC, why integrity moves to the attribution layer) is in [`docs/minipay-attribution.md`](docs/minipay-attribution.md).
 
-## Two intake paths share a namespace
+## Resolving codes to apps (for now: a single hostname lookup)
 
-Codes in the form `celo_xxxxxxxx` are produced by two paths:
+For the test phase, codes are produced by a single path: hostname-derived for MiniPay apps. To map a `celo_xxxxxxxx` back to an app, take MiniPay's approved-app list (Vinay shares this — it's a list of hostnames), compute `codeFromHostname(host)` for each, and that's your lookup table.
 
-- **Auto-derived from hostname** (MiniPay mini apps): `code = celo_ + sha256(hostname)[:4]`. The mapping lives in MiniPay's approved-app list (Vinay shares this).
-- **Issued via explicit registration** (Proof of Ship and others): random 8-char alphanum, recorded in a separate lookup table.
-
-When you encounter `celo_b057492a` in the wild, it could be from either path. **Easiest reconciliation: check both lookups, prefer the explicit registration if present.** Hostname-derived codes are the fallback for MiniPay apps; explicit-registration codes are authoritative for everything else.
+You don't need anything fancier than that to ship the first dashboard.
 
 ## Suggested output schema
 
@@ -143,14 +140,20 @@ schema_id                   -- 0 for v1
 multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a"
 ```
 
-## Notes on platform codes (`minipay`, `proofofship`)
+## Roadmap — what changes when MiniPay tags at the wallet layer
 
-App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps — for instance, MiniPay's wallet will eventually prepend `minipay,` to every tx routed through it, before signing.
+App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**.
 
-So in the wild you'll see two shapes:
+When that ships, the on-chain shape for any MiniPay tx becomes:
 
-- `[code:N=13][len:0x0d][schema:0x00][marker]` — single-code, just the per-app code (most apps right now)
-- `[code:N=21][len:0x15][schema:0x00][marker]` — multi-code `minipay,celo_xxxxxxxx`, once MiniPay ships their integration
+```
+[code:N=21][len:0x15][schema:0x00][marker]
+where the code field is "minipay,celo_xxxxxxxx"
+```
+
+That makes filtering for MiniPay txs trivial — split the code field on `,`, look for `minipay` in the resulting list. No hostname lookup needed at all to identify *which platform* a tx came through. You'd still want the hostname → code lookup if you want to identify *which specific MiniPay app* sent the tx, but the platform-attribution question becomes a one-line filter.
+
+For the testing phase, you won't see `minipay` on-chain yet — every tx will be the single-code shape. Just decode and group by code.
 
 Your parser should split on `,` regardless of which shape arrives. Each comma-separated segment is a separate attribution claim.
 

@@ -63,7 +63,7 @@ Three concrete things to do once the demo HTML is deployed:
 
 ## Open questions
 
-- **Two intake paths share a namespace.** Auto-derive (MiniPay) and explicit-form (Proof of Ship) both produce `celo_xxxxxxxx`. When Chidi sees `celo_b057492a`, how does he know which lookup table to check? Easiest answer: check both, prefer the explicit registration if present. 10-min sync with him before he starts coding.
+- **Two intake paths share a namespace.** Auto-derive (MiniPay) and explicit-form (Proof of Ship, future) both produce `celo_xxxxxxxx`. When Chidi sees `celo_b057492a`, how does he know which lookup table to check? *Update 8 May 2026: deferred. For the testing-phase Dune dashboard, only the auto-derive path is live, so a single hostname-lookup is sufficient. Once the registration form exists and codes start arriving from both paths, revisit. The MiniPay wallet-layer `minipay,` prepend (once shipped) eliminates the platform-attribution question entirely; the per-app reconciliation question stays open.*
 
 - **MiniPay's approved-app list location.** Vinay said he'll share his intake form output. Cleanest path: he adds Lena and Chidi as collaborators on whatever sheet/Airtable the form feeds into; Chidi pulls hostnames, computes SHA-256 prefixes, builds the MiniPay lookup table. Pin down before Friday.
 

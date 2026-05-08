@@ -61,15 +61,16 @@ await wallet.sendTransaction({ to: tokenAddress, data: taggedData });
 
 That's the whole integration. Every transaction sent through your app is now tagged.
 
-### Multi-code (platform + app)
+### Each layer attributes itself
 
-If your app runs inside a host platform (e.g. MiniPay, or a Proof of Ship cohort), you can co-attribute by passing both codes:
+ERC-8021 supports multi-code suffixes — one tx can carry several codes — but each code should only be added by the entity it represents.
 
-```ts
-toDataSuffix(["minipay", "celo_b7k3p9da"]);
-```
+- **Your app code** (`celo_xxxxxxxx`): added by your app, in your app's SDK call. That's what this guide is teaching you to do.
+- **A platform code** like `minipay` or `proofofship`: added by the platform itself, at the wallet level (MiniPay) or the cohort layer (Proof of Ship). Not your app's job.
 
-The on-chain pipeline reads both. The platform code lets us aggregate by surface; your code identifies your specific app.
+If you put `["minipay", yourCode]` in your app's `toDataSuffix` call, your app is asserting "this tx ran in MiniPay" — even when it didn't. Every tx your app sends from a regular browser would lie about being a MiniPay tx, polluting the attribution data. Don't.
+
+The combined on-chain shape `minipay,celo_xxxxxxxx` is what eventually appears once MiniPay's wallet prepends its own claim. Your responsibility ends at your own code.
 
 ### MiniPay mini apps — auto-derive
 
@@ -78,12 +79,15 @@ If you're shipping a MiniPay mini app, you don't need to register or be issued a
 ```ts
 import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
 
-const tag = toDataSuffix(["minipay", codeFromHostname(location.hostname)]);
+const tag = toDataSuffix(codeFromHostname(location.hostname));
+// → suffix encoding just your celo_xxxxxxxx code
 
 await wallet.sendTransaction({ to, value, data: tag });
 ```
 
-That's the entire integration. No backend, no key, no form. The hostname-to-code mapping is a one-way SHA-256 prefix; you can verify it offline:
+That's the entire integration. No backend, no key, no form. Don't add `"minipay"` yourself — MiniPay will prepend it at the wallet level once their integration ships, and the on-chain shape will become `minipay,celo_xxxxxxxx` automatically.
+
+The hostname-to-code mapping is a one-way SHA-256 prefix; you can verify it offline:
 
 ```bash
 printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
@@ -111,10 +115,9 @@ export function getBuilderCodeSuffix(): Hex | undefined {
   if (typeof window === "undefined") return undefined;
   if (cached) return cached;
   try {
-    cached = toDataSuffix([
-      "minipay",
+    cached = toDataSuffix(
       codeFromHostname(window.location.hostname),
-    ]) as Hex;
+    ) as Hex;
     return cached;
   } catch {
     return undefined;
@@ -130,10 +133,9 @@ The `typeof window === "undefined"` check makes the function a no-op on the serv
 "use client";
 import { toDataSuffix, codeFromHostname } from "@celo-org/builder-codes";
 
-export const BUILDER_SUFFIX = toDataSuffix([
-  "minipay",
+export const BUILDER_SUFFIX = toDataSuffix(
   codeFromHostname(window.location.hostname),
-]);
+);
 ```
 
 Only do this in a file marked `"use client"`. Importing it from a server component will throw at build time.

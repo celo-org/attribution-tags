@@ -25,6 +25,11 @@
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
   "packageManager": "pnpm@10.13.1",
+  "pnpm": {
+    "overrides": {
+      "rollup": "4.60.3"
+    }
+  },
   "dependencies": {
     "ox": "^0.10.0"
   },

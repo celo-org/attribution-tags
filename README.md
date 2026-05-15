@@ -8,6 +8,8 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 
 - **You're shipping an app on Celo and want your transactions attributed?** → [**BUILDERS.md**](BUILDERS.md)
 - **You're writing a parser, indexer, or Dune model that reads tagged Celo transactions?** → [**INDEXERS.md**](INDEXERS.md)
+- **You're integrating builder codes into MiniPay (app team)?** → [**docs/minipay-integration-spec.md**](docs/minipay-integration-spec.md)
+- **You're on the MiniPay wallet team adding the wallet-level `minipay` claim?** → [**docs/minipay-wallet-integration.md**](docs/minipay-wallet-integration.md)
 
 ## What's in this repo
 
@@ -17,22 +19,24 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 ├── BUILDERS.md                    (for app builders)
 ├── INDEXERS.md                    (for parsers, indexers, Dune models)
 ├── CLAUDE.md                      (project context, conventions)
-├── sdk/                           (the npm package — @gigahierz/builder-codes)
+├── sdk/                           (the npm package — @celo/builder-codes)
 │   ├── src/index.ts
 │   ├── tests/
 │   ├── package.json
 │   └── README.md                  (full SDK API reference)
 ├── docs/
-│   ├── implementation-plan.md     (the original plan + May 7 update)
-│   ├── minipay-attribution.md     (auto-derive design rationale)
+│   ├── implementation-plan.md         (the original plan + May 7 update)
+│   ├── minipay-attribution.md         (auto-derive design rationale, internal)
+│   ├── minipay-integration-spec.md    (handover spec for MiniPay app teams)
+│   ├── minipay-wallet-integration.md  (recommendation for the MiniPay wallet team)
 │   └── integration-reports/
-│       └── mondeto.md             (first real consumer integration)
+│       └── mondeto.md                 (first real consumer integration)
 └── .claude/commands/              (Claude Code slash commands for testing)
 ```
 
 ## Status
 
-Pre-release. The SDK is published as `@gigahierz/builder-codes@0.1.0-rc.1` on the `next` tag while we wait for `@celo-org` publish rights. Once those land, the package will be republished as `@celo-org/builder-codes@0.1.0` and `@gigahierz/builder-codes` will be deprecated with a redirect message. The wire format and the derivation algorithm are stable; only the npm name changes.
+The SDK is published on npm as [`@celo/builder-codes`](https://www.npmjs.com/package/@celo/builder-codes). The wire format and derivation algorithm are stable.
 
 ## Contact
 

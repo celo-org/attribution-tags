@@ -4,7 +4,7 @@
 
 A lean ERC-8021 builder-code attribution system for Celo. Audience, in priority order: MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly. Celo-only — do not pitch interop with other chains as a feature. Two ship pieces:
 
-1. **SDK** (`sdk/`) — npm package `@celo-org/builder-codes`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
+1. **SDK** (`sdk/`) — npm package `@celo/builder-codes`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
 2. **Distribution server** (`distribution-server/`) — Next.js form on Vercel. Builders enter Talent Protocol passport ID, Telegram, email; backend validates against TP API, generates a random `celo_xxxxxxxx` code, stores it in Airtable, returns the code.
 
 Chidi (separate workstream, Dune dbt model) reads the Airtable lookup as a Dune-uploaded dataset and joins it against on-chain attributed transactions. Nothing in this repo touches Dune; the bridge is the Airtable.
@@ -59,7 +59,7 @@ These are deferred. Don't add them when iterating.
 │   ├── minipay-attribution.md         # the auto-derive design rationale
 │   └── integration-reports/
 │       └── mondeto.md                 # first real consumer integration report
-├── sdk/                               # @gigahierz/builder-codes (eventual @celo-org/builder-codes)
+├── sdk/                               # @celo/builder-codes (eventual @celo/builder-codes)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tsup.config.ts

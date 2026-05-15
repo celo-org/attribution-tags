@@ -95,6 +95,9 @@ export function codeFromHostname(hostname: string): string {
     );
   }
   const digest = OxHash.sha256(Bytes.fromString(normalized), { as: "Hex" });
-  // digest is 0x-prefixed 64-char hex; first 4 bytes = 8 hex chars after the prefix
-  return `celo_${digest.slice(2, 10)}`;
+  // digest is 0x-prefixed 64-char hex; we take the first 6 bytes = 12 hex chars
+  // after the 0x prefix. 12 chars = 48 bits of entropy, ~2.3M codes before
+  // birthday-bound collisions get meaningful — comfortable headroom for MiniPay
+  // scale. Don't change without recomputing every pinned vector.
+  return `celo_${digest.slice(2, 14)}`;
 }

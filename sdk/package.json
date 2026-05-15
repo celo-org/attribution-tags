@@ -1,6 +1,6 @@
 {
-  "name": "@gigahierz/builder-codes",
-  "version": "0.1.0-rc.1",
+  "name": "@celo/builder-codes",
+  "version": "0.2.0",
   "description": "ERC-8021 builder-code attribution for Celo. One-line tagging and verification on top of ox.",
   "license": "MIT",
   "type": "module",
@@ -58,6 +58,6 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GigaHierz/builder-codes.git"
+    "url": "git+https://github.com/celo-org/builder-codes.git"
   }
 }

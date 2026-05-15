@@ -1,8 +1,6 @@
-# @gigahierz/builder-codes
+# @celo/builder-codes
 
 ERC-8021 builder-code attribution **on Celo**. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
-
-> **Pre-release.** Currently published as `@gigahierz/builder-codes` on the `next` tag while we wait for `@celo-org` publish rights. Once those land, this will be republished as `@celo-org/builder-codes` at a stable `0.1.0`, and the `@gigahierz` package will be deprecated with a redirect.
 
 Built for, in priority order:
 
@@ -15,23 +13,23 @@ The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSe
 ## Install
 
 ```bash
-npm install @gigahierz/builder-codes@next viem
+npm install @celo/builder-codes viem
 # or
-pnpm add @gigahierz/builder-codes@next viem
+pnpm add @celo/builder-codes viem
 # or
-yarn add @gigahierz/builder-codes@next viem
+yarn add @celo/builder-codes viem
 ```
 
 `viem` is an optional peer dep, only needed if you call `verifyTx`.
 
-> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-org-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
+> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
 
 ## Usage
 
 ### Tag a transaction
 
 ```ts
-import { toDataSuffix } from "@gigahierz/builder-codes";
+import { toDataSuffix } from "@celo/builder-codes";
 import { createWalletClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -49,7 +47,7 @@ await wallet.sendTransaction({
 ### Verify a transaction
 
 ```ts
-import { verifyTx } from "@gigahierz/builder-codes";
+import { verifyTx } from "@celo/builder-codes";
 import { createPublicClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -62,7 +60,7 @@ const result = await verifyTx({ client, hash: "0x..." });
 ### Decode a suffix offline
 
 ```ts
-import { fromDataSuffix } from "@gigahierz/builder-codes";
+import { fromDataSuffix } from "@celo/builder-codes";
 
 fromDataSuffix("0x63656c6f040080218021802180218021802180218021");
 // → { codes: ["celo"], schemaId: 0 }
@@ -104,7 +102,21 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `verifyTx` never throws — RPC errors return `null`.
 
-`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 4 bytes hex → `celo_` prefix. Same input → same code, every time. See `docs/minipay-attribution.md` for the design.
+`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time. See [`../docs/minipay-attribution.md`](../docs/minipay-attribution.md) for the design rationale and [`../docs/minipay-integration-spec.md`](../docs/minipay-integration-spec.md) for the full MiniPay handover.
+
+### Pinned hostname → code vectors
+
+Independently verified against `shasum -a 256` and against [`tests/hostname.test.ts`](tests/hostname.test.ts). If a reimplementation doesn't produce these values, the algorithm has drifted.
+
+| Hostname | Code |
+|---|---|
+| `mondeto.app` | `celo_b057492a5aa5` |
+| `celo.org` | `celo_8549372f8229` |
+| `minipay.io` | `celo_51e519342b9a` |
+| `app.mondeto.app` | `celo_1a8ba29dac7a` |
+| `mondeto.vercel.app` | `celo_04168799c492` |
+
+Subdomains stay distinct by design (so `*.vercel.app` apps don't all collide into one code). Preview / staging hostnames therefore produce their own codes; aggregate environments at the dashboard layer, not the SDK layer.
 
 ## License
 

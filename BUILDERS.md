@@ -12,7 +12,7 @@ If you're writing a parser, indexer, or Dune model for tagged transactions inste
 
 ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-`@gigahierz/builder-codes` (pre-release, will move to `@celo-org/builder-codes` once Celo Core publish rights are sorted) wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you four exports:
+`@celo/builder-codes` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you four exports:
 
 ```ts
 toDataSuffix(code | [codes])               // → encoded suffix (Hex)
@@ -24,7 +24,7 @@ verifyTx({ client, hash })                 // → { codes, schemaId } | null
 ## Install
 
 ```bash
-npm install @gigahierz/builder-codes@next viem
+npm install @celo/builder-codes viem
 # or pnpm add / yarn add — same args
 ```
 
@@ -35,7 +35,7 @@ npm install @gigahierz/builder-codes@next viem
 If you're shipping a MiniPay mini app, **you don't need to register or be issued a code**. The SDK derives a deterministic per-app code from your hostname. Same hostname → same code, every time, anywhere it runs:
 
 ```ts
-import { toDataSuffix, codeFromHostname } from '@gigahierz/builder-codes'
+import { toDataSuffix, codeFromHostname } from '@celo/builder-codes'
 
 const tag = toDataSuffix(codeFromHostname(location.hostname))
 
@@ -45,20 +45,20 @@ await wallet.sendTransaction({ to, value, data: tag })
 That's the entire integration. No backend, no key, no form. Hostname-to-code is a one-way SHA-256 prefix; you can verify it offline:
 
 ```bash
-printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
-# → b057492a   (matches codeFromHostname("mondeto.app") = "celo_b057492a")
+printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-12
+# → b057492a5aa5   (matches codeFromHostname("mondeto.app") = "celo_b057492a5aa5")
 ```
 
 `codeFromHostname` lowercases the hostname and strips a leading `www.`, so `WWW.Mondeto.App` and `mondeto.app` map to the same code. Subdomains stay distinct (so `app.mondeto.app` ≠ `mondeto.app`) — important on shared hosts like `*.vercel.app` where stripping subdomains would collide every Vercel-hosted app into one code.
 
-Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step. See [`docs/minipay-attribution.md`](docs/minipay-attribution.md) for the full design rationale.
+Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step. See [`docs/minipay-attribution.md`](docs/minipay-attribution.md) for the design rationale and [`docs/minipay-integration-spec.md`](docs/minipay-integration-spec.md) for the end-to-end MiniPay handover (registration form → confirmation email → integration → verification).
 
 ## Quickstart — issued codes (Proof of Ship and others)
 
 If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path, pass it directly:
 
 ```ts
-import { toDataSuffix } from '@gigahierz/builder-codes'
+import { toDataSuffix } from '@celo/builder-codes'
 
 const tag = toDataSuffix('celo_b7k3p9da')
 
@@ -101,7 +101,7 @@ writeContract({
 
 ```ts
 // lib/builder-code.ts
-import { toDataSuffix, codeFromHostname } from '@gigahierz/builder-codes'
+import { toDataSuffix, codeFromHostname } from '@celo/builder-codes'
 import type { Hex } from 'viem'
 
 let cached: Hex | null = null
@@ -124,7 +124,7 @@ The `typeof window === 'undefined'` check makes the function a no-op on the serv
 
 ```tsx
 'use client'
-import { toDataSuffix, codeFromHostname } from '@gigahierz/builder-codes'
+import { toDataSuffix, codeFromHostname } from '@celo/builder-codes'
 
 export const BUILDER_SUFFIX = toDataSuffix(codeFromHostname(window.location.hostname))
 ```
@@ -147,7 +147,7 @@ The combined on-chain shape `minipay,celo_xxxxxxxx` is what eventually appears o
 Once you've sent a tagged transaction, confirm the suffix is on-chain:
 
 ```ts
-import { verifyTx } from '@gigahierz/builder-codes'
+import { verifyTx } from '@celo/builder-codes'
 import { createPublicClient, http } from 'viem'
 import { celo } from 'viem/chains'
 
@@ -162,7 +162,7 @@ console.log(result) // { codes: ["celo_b7k3p9da"], schemaId: 0 }
 For offline debugging without an RPC roundtrip:
 
 ```ts
-import { fromDataSuffix } from '@gigahierz/builder-codes'
+import { fromDataSuffix } from '@celo/builder-codes'
 
 fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
@@ -186,8 +186,8 @@ If you want to query the data yourself, see [`INDEXERS.md`](INDEXERS.md) — it 
 ## Reference
 
 - Full SDK API: [`sdk/README.md`](sdk/README.md)
-- npm package: https://www.npmjs.com/package/@gigahierz/builder-codes
-- Source: https://github.com/GigaHierz/builder-codes
+- npm package: https://www.npmjs.com/package/@celo/builder-codes
+- Source: https://github.com/celo-org/builder-codes
 
 ## Questions
 

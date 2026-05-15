@@ -22,8 +22,9 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
+  "packageManager": "pnpm@10.13.1",
   "dependencies": {
     "ox": "^0.10.0"
   },

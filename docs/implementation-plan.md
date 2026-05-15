@@ -10,9 +10,9 @@ Lean scope: SDK + dbt model + distribution mechanism. No on-chain registry and n
 
 ## Update — 7 May 2026
 
-After sync with Vinay (MiniPay PM) and Anna:
+After a sync with the MiniPay product team:
 
-- Distribution-server form (Workstream 3 below) is **under review**. Vinay strongly preferred a single shared client-side script that derives a per-app code from the **full domain (incl. subdomain)** — no human in the loop, no separate form. Lena tentatively agreed; final call pending after the SDK + format are locked.
+- Distribution-server form (Workstream 3 below) is **under review**. The MiniPay product team strongly preferred a single shared client-side script that derives a per-app code from the **full domain (incl. subdomain)** — no human in the loop, no separate form. Lena tentatively agreed; final call pending after the SDK + format are locked.
 - MiniPay will claim its own platform attribute (`minipay`) at the wallet level. Apps add a second attribute on top → multi-code wire format `[minipay, <app-code>]` for any tx routed through MiniPay.
 - Sequencing confirmed: SDK + wire-format spec first; figure out distribution after.
 - Wed 13 May 2026 doc deadline still stands.
@@ -23,7 +23,7 @@ The Workstream 3 section below is preserved as the original plan; treat the dist
 
 | # | Deliverable | Owner | Due |
 |---|---|---|---|
-| 1 | `@celo-org/builder-codes` SDK + integration guide | Lena | Wed May 13 |
+| 1 | `@celo/builder-codes` SDK + integration guide | Lena | Wed May 13 |
 | 2 | Distribution server (form → code) | Lena | Wed May 13 |
 | 3 | Dune dbt model + queryable attributed-tx table | Chidi | Fri May 8 |
 
@@ -41,7 +41,7 @@ Codes are not human-readable on purpose: no squatting, no claim arbitration, eas
 
 ## Workstream 1 — SDK (Lena)
 
-`@celo-org/builder-codes`, npm package, three exports:
+`@celo/builder-codes`, npm package, three exports:
 
 ```ts
 toDataSuffix(code: string | string[]): Hex

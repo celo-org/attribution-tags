@@ -1,6 +1,6 @@
 {
   "name": "@celo/builder-codes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ERC-8021 builder-code attribution for Celo. One-line tagging and verification on top of ox.",
   "license": "MIT",
   "type": "module",

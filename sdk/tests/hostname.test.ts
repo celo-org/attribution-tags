@@ -7,11 +7,11 @@ describe("codeFromHostname — pinned vectors", () => {
   // changes value, the derivation algorithm has drifted and every
   // already-tagged tx in the wild will silently re-attribute.
   const vectors: ReadonlyArray<readonly [string, string]> = [
-    ["mondeto.app", "celo_b057492a"],
-    ["celo.org", "celo_8549372f"],
-    ["minipay.io", "celo_51e51934"],
-    ["app.mondeto.app", "celo_1a8ba29d"],
-    ["mondeto.vercel.app", "celo_04168799"],
+    ["mondeto.app", "celo_b057492a5aa5"],
+    ["celo.org", "celo_8549372f8229"],
+    ["minipay.io", "celo_51e519342b9a"],
+    ["app.mondeto.app", "celo_1a8ba29dac7a"],
+    ["mondeto.vercel.app", "celo_04168799c492"],
   ];
 
   for (const [hostname, expected] of vectors) {
@@ -23,18 +23,18 @@ describe("codeFromHostname — pinned vectors", () => {
 
 describe("codeFromHostname — normalization", () => {
   it("is case-insensitive", () => {
-    expect(codeFromHostname("Mondeto.App")).toBe("celo_b057492a");
-    expect(codeFromHostname("MONDETO.APP")).toBe("celo_b057492a");
+    expect(codeFromHostname("Mondeto.App")).toBe("celo_b057492a5aa5");
+    expect(codeFromHostname("MONDETO.APP")).toBe("celo_b057492a5aa5");
   });
 
   it("treats www. and bare domain as the same app", () => {
-    expect(codeFromHostname("www.mondeto.app")).toBe("celo_b057492a");
-    expect(codeFromHostname("mondeto.app")).toBe("celo_b057492a");
+    expect(codeFromHostname("www.mondeto.app")).toBe("celo_b057492a5aa5");
+    expect(codeFromHostname("mondeto.app")).toBe("celo_b057492a5aa5");
   });
 
   it("only strips a leading www., not www. anywhere else", () => {
     // app.www.mondeto.app is a different host than mondeto.app
-    expect(codeFromHostname("app.www.mondeto.app")).not.toBe("celo_b057492a");
+    expect(codeFromHostname("app.www.mondeto.app")).not.toBe("celo_b057492a5aa5");
   });
 
   it("treats subdomains as distinct apps", () => {

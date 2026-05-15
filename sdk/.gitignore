@@ -6,3 +6,8 @@ dist
 .env
 .env.local
 coverage
+
+# We use pnpm. If someone accidentally runs `npm install`, ignore the
+# lockfile it drops so we don't end up with two competing lockfiles.
+package-lock.json
+yarn.lock

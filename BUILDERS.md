@@ -51,7 +51,7 @@ printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-12
 
 `codeFromHostname` lowercases the hostname and strips a leading `www.`, so `WWW.Mondeto.App` and `mondeto.app` map to the same code. Subdomains stay distinct (so `app.mondeto.app` ≠ `mondeto.app`) — important on shared hosts like `*.vercel.app` where stripping subdomains would collide every Vercel-hosted app into one code.
 
-Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step. See [`docs/minipay-attribution.md`](docs/minipay-attribution.md) for the design rationale and [`docs/minipay-integration-spec.md`](docs/minipay-integration-spec.md) for the end-to-end MiniPay handover (registration form → confirmation email → integration → verification).
+Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step.
 
 ## Quickstart — issued codes (Proof of Ship and others)
 
@@ -168,7 +168,7 @@ fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
 ```
 
-You can also verify against a real tx via Celoscan: the [Mondeto fixture](https://celoscan.io/tx/0xc47b7f8db12b33482b5de0129fc1da66f7b6cb45e56d1d16954ba7e0532bf4d5) is a real Mainnet `updateProfile` tx whose calldata ends with `celo_49960de5`'s suffix.
+You can also verify against a real tx via Celoscan: this [Mondeto example tx](https://celoscan.io/tx/0xfe554ab86bf3fcd29b56d148f906ac94f05f5e1d415912a7bf371cef2c74b881) is a real Mainnet `updateProfile` whose calldata ends with `celo_ce264747447f`'s suffix (= `codeFromHostname("mondeto-web.vercel.app")`).
 
 ## Common gotchas
 

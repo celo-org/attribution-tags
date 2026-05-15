@@ -70,16 +70,18 @@ fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
 ```
 
-## Test fixtures (verified live on Celo Mainnet)
+## Example txs (verified live on Celo Mainnet)
 
 Two real transactions you can plug into your parser to test it. Both have status: success. Both produced by the SDK in this repo, on the corrected (single-code) pattern.
 
 | Function | Decoded suffix | Tx hash | Why it's useful |
 |---|---|---|---|
-| `Mondeto.updateProfile(uint24,string,string)` | `{ codes: ["celo_49960de5"], schemaId: 0 }` | [`0xc47b7f…2bf4d5`](https://celoscan.io/tx/0xc47b7f8db12b33482b5de0129fc1da66f7b6cb45e56d1d16954ba7e0532bf4d5) | Smallest realistic shape — color + two strings + suffix. Confirms the basic case. |
-| `Mondeto.buyPixels(uint256[])` | `{ codes: ["celo_49960de5"], schemaId: 0 }` | [`0xbf65cb…3cba96`](https://celoscan.io/tx/0xbf65cbfbc2635e80087654688a8a3c5d4da763502a548e6cdf55d9df833cba96) | Realistic dynamic-array calldata with the suffix at the end. Confirms tail-of-input handling. |
+| `Mondeto.updateProfile(uint24,string,string)` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xfe554a…cef2c74b881`](https://celoscan.io/tx/0xfe554ab86bf3fcd29b56d148f906ac94f05f5e1d415912a7bf371cef2c74b881) | Smallest realistic shape — color + two strings + suffix. Confirms the basic case. |
+| `Mondeto.buyPixels(uint256[])` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xba6c36…792fb162ea`](https://celoscan.io/tx/0xba6c3607c1fbf8ce17c8c18bacb102678e42b3f212de677921bb39792fb162ea) | Realistic dynamic-array calldata with the suffix at the end. Confirms tail-of-input handling. |
 
-`celo_49960de5` is `codeFromHostname("localhost")` under the **8-char derivation scheme** that pre-dates the move to 12 chars (see `sdk/CHANGELOG` or the version history). Both fixtures are still valid ERC-8021 wire-format tests — the parser doesn't care about the length of the code field — but new derivations from the SDK now produce 12-char codes (`celo_xxxxxxxxxxxx`). Indexers must accept both lengths.
+`celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo/builder-codes@0.2.0`.
+
+**Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field — but indexers should accept any code length from 1–32 bytes, not just the current 12-char shape.
 
 ## The hostname-derivation algorithm
 
@@ -113,7 +115,7 @@ printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-12
 # → b057492a5aa5
 ```
 
-The full design rationale (why plain SHA-256 over HMAC, why integrity moves to the attribution layer) is in [`docs/minipay-attribution.md`](docs/minipay-attribution.md).
+The design choice (plain SHA-256 over HMAC) is deliberate: once a tagged tx is on chain, the code is public, so a secret-key HMAC buys nothing against spoofing — attribution integrity lives at the indexer layer (only credit codes whose hostnames appear on the approved-app list), not in the encoding.
 
 ## Resolving codes to apps (for now: a single hostname lookup)
 
@@ -142,7 +144,7 @@ multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a"
 
 ## Roadmap — what changes when MiniPay tags at the wallet layer
 
-App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**. The wallet-side recommendation is in [`docs/minipay-wallet-integration.md`](docs/minipay-wallet-integration.md).
+App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**.
 
 When that ships, the on-chain shape for any MiniPay tx becomes:
 

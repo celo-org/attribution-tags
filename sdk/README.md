@@ -13,16 +13,16 @@ The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSe
 ## Install
 
 ```bash
-npm install @celo/builder-codes@next viem
+npm install @celo/builder-codes viem
 # or
-pnpm add @celo/builder-codes@next viem
+pnpm add @celo/builder-codes viem
 # or
-yarn add @celo/builder-codes@next viem
+yarn add @celo/builder-codes viem
 ```
 
 `viem` is an optional peer dep, only needed if you call `verifyTx`.
 
-> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-org-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
+> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
 
 ## Usage
 
@@ -102,7 +102,21 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `verifyTx` never throws — RPC errors return `null`.
 
-`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 4 bytes hex → `celo_` prefix. Same input → same code, every time. See `docs/minipay-attribution.md` for the design.
+`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time. See [`../docs/minipay-attribution.md`](../docs/minipay-attribution.md) for the design rationale and [`../docs/minipay-integration-spec.md`](../docs/minipay-integration-spec.md) for the full MiniPay handover.
+
+### Pinned hostname → code vectors
+
+Independently verified against `shasum -a 256` and against [`tests/hostname.test.ts`](tests/hostname.test.ts). If a reimplementation doesn't produce these values, the algorithm has drifted.
+
+| Hostname | Code |
+|---|---|
+| `mondeto.app` | `celo_b057492a5aa5` |
+| `celo.org` | `celo_8549372f8229` |
+| `minipay.io` | `celo_51e519342b9a` |
+| `app.mondeto.app` | `celo_1a8ba29dac7a` |
+| `mondeto.vercel.app` | `celo_04168799c492` |
+
+Subdomains stay distinct by design (so `*.vercel.app` apps don't all collide into one code). Preview / staging hostnames therefore produce their own codes; aggregate environments at the dashboard layer, not the SDK layer.
 
 ## License
 

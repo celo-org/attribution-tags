@@ -1,7 +1,7 @@
 # Integration Report — Mondeto
 
 **Date:** 2026-05-08
-**SDK version:** `@celo-org/builder-codes@0.1.0` (local tarball)
+**SDK version:** `@celo/builder-codes@0.1.0` (local tarball)
 **Consumer:** Mondeto (Next.js 14 + wagmi 2 + viem 2 + Privy, pnpm + Turborepo monorepo)
 **Outcome:** Working end-to-end. One real on-chain transaction tagged and decoded successfully.
 
@@ -21,7 +21,7 @@ The buy-pixel flow in Mondeto issues two writes (USDT `approve` + `Mondeto.buyPi
 The helper:
 
 ```ts
-import { toDataSuffix, codeFromHostname } from '@celo-org/builder-codes'
+import { toDataSuffix, codeFromHostname } from '@celo/builder-codes'
 import type { Hex } from 'viem'
 
 let cached: Hex | null = null
@@ -107,7 +107,7 @@ Nothing blocking. The SDK shipped a working integration in well under an hour of
 
 ```diff
 # apps/web/package.json
-+ "@celo-org/builder-codes": "file:/path/to/celo-org-builder-codes-0.1.0.tgz",
++ "@celo/builder-codes": "file:/path/to/celo-builder-codes-0.1.0.tgz",
 
 # apps/web/src/lib/builderCode.ts (new file, see body above)
 

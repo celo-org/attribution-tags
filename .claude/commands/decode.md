@@ -6,7 +6,7 @@ Steps:
 
 1. Validate the input is hex. If not, abort with a message.
 
-2. Call `fromDataSuffix(input)` from `@celo-org/builder-codes`.
+2. Call `fromDataSuffix(input)` from `@celo/builder-codes`.
 
 3. If the result is `null`, print:
    ```

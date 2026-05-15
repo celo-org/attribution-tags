@@ -1,8 +1,6 @@
-# @gigahierz/builder-codes
+# @celo/builder-codes
 
 ERC-8021 builder-code attribution **on Celo**. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
-
-> **Pre-release.** Currently published as `@gigahierz/builder-codes` on the `next` tag while we wait for `@celo-org` publish rights. Once those land, this will be republished as `@celo-org/builder-codes` at a stable `0.1.0`, and the `@gigahierz` package will be deprecated with a redirect.
 
 Built for, in priority order:
 
@@ -15,11 +13,11 @@ The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSe
 ## Install
 
 ```bash
-npm install @gigahierz/builder-codes@next viem
+npm install @celo/builder-codes@next viem
 # or
-pnpm add @gigahierz/builder-codes@next viem
+pnpm add @celo/builder-codes@next viem
 # or
-yarn add @gigahierz/builder-codes@next viem
+yarn add @celo/builder-codes@next viem
 ```
 
 `viem` is an optional peer dep, only needed if you call `verifyTx`.
@@ -31,7 +29,7 @@ yarn add @gigahierz/builder-codes@next viem
 ### Tag a transaction
 
 ```ts
-import { toDataSuffix } from "@gigahierz/builder-codes";
+import { toDataSuffix } from "@celo/builder-codes";
 import { createWalletClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -49,7 +47,7 @@ await wallet.sendTransaction({
 ### Verify a transaction
 
 ```ts
-import { verifyTx } from "@gigahierz/builder-codes";
+import { verifyTx } from "@celo/builder-codes";
 import { createPublicClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -62,7 +60,7 @@ const result = await verifyTx({ client, hash: "0x..." });
 ### Decode a suffix offline
 
 ```ts
-import { fromDataSuffix } from "@gigahierz/builder-codes";
+import { fromDataSuffix } from "@celo/builder-codes";
 
 fromDataSuffix("0x63656c6f040080218021802180218021802180218021");
 // → { codes: ["celo"], schemaId: 0 }

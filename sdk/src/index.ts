@@ -77,8 +77,7 @@ export async function verifyTx(
 }
 
 // MiniPay flow: derive a deterministic per-app code from the hostname,
-// so apps can self-attribute with no registration step. See
-// docs/minipay-attribution.md for the design discussion.
+// so apps can self-attribute with no registration step.
 const HOSTNAME_RE = /^[a-z0-9.-]+$/;
 
 export function codeFromHostname(hostname: string): string {

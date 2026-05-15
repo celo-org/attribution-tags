@@ -40,7 +40,7 @@ These are deferred. Don't add them when iterating.
 
 ## Conventions
 
-- Lena's standing prefs: documents include her name (Lena), title (DevRel Lead, Celo Core Co), and creation date at the top.
+- Lena's standing prefs: **Google Docs / internal-circulation documents** include her name (Lena), title (DevRel Lead, Celo Core Co), and creation date at the top. **Docs committed to a GitHub repo do NOT include this header** — they're authored by the project, not personally attributed.
 - All payments referenced in any agreement = USDT on Celo.
 - Talent Protocol API: `X-API-KEY` header. Base URL `https://api.talentprotocol.com/api/v2`. Endpoint we use: `/passports/{id}` (accepts numeric ID, wallet address, or username).
 - The verifier function fetches a tx via viem and decodes the suffix; if no marker present, returns null. No throwing.

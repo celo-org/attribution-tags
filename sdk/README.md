@@ -102,7 +102,7 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `verifyTx` never throws — RPC errors return `null`.
 
-`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time. See [`../docs/minipay-attribution.md`](../docs/minipay-attribution.md) for the design rationale and [`../docs/minipay-integration-spec.md`](../docs/minipay-integration-spec.md) for the full MiniPay handover.
+`codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time.
 
 ### Pinned hostname → code vectors
 

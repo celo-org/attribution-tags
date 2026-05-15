@@ -64,7 +64,7 @@ def parse_suffix(input_bytes):
 For a TS-side equivalent, you can use this repo's SDK directly:
 
 ```ts
-import { fromDataSuffix } from '@gigahierz/builder-codes'
+import { fromDataSuffix } from '@celo/builder-codes'
 
 fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
@@ -79,7 +79,7 @@ Two real transactions you can plug into your parser to test it. Both have status
 | `Mondeto.updateProfile(uint24,string,string)` | `{ codes: ["celo_49960de5"], schemaId: 0 }` | [`0xc47b7f…2bf4d5`](https://celoscan.io/tx/0xc47b7f8db12b33482b5de0129fc1da66f7b6cb45e56d1d16954ba7e0532bf4d5) | Smallest realistic shape — color + two strings + suffix. Confirms the basic case. |
 | `Mondeto.buyPixels(uint256[])` | `{ codes: ["celo_49960de5"], schemaId: 0 }` | [`0xbf65cb…3cba96`](https://celoscan.io/tx/0xbf65cbfbc2635e80087654688a8a3c5d4da763502a548e6cdf55d9df833cba96) | Realistic dynamic-array calldata with the suffix at the end. Confirms tail-of-input handling. |
 
-`celo_49960de5` is `codeFromHostname("localhost")` — both txs were sent from a local dev environment of [Mondeto](https://mondeto.app). In production these'd carry the per-app code derived from the prod hostname.
+`celo_49960de5` is `codeFromHostname("localhost")` under the **8-char derivation scheme** that pre-dates the move to 12 chars (see `sdk/CHANGELOG` or the version history). Both fixtures are still valid ERC-8021 wire-format tests — the parser doesn't care about the length of the code field — but new derivations from the SDK now produce 12-char codes (`celo_xxxxxxxxxxxx`). Indexers must accept both lengths.
 
 ## The hostname-derivation algorithm
 
@@ -89,7 +89,7 @@ For MiniPay-style auto-derived codes, each app's code is derived deterministical
 2. Lowercase it
 3. Strip a leading `www.` (so `www.mondeto.app` and `mondeto.app` map to the same code)
 4. SHA-256 the bytes
-5. Take the first 4 bytes (8 hex chars)
+5. Take the first 6 bytes (12 hex chars)
 6. Prefix with `celo_`
 
 Subdomains stay distinct — `mondeto.app` ≠ `app.mondeto.app`. Preview/staging hostnames produce their own codes by design.
@@ -100,24 +100,24 @@ Independently verified against `shasum -a 256`. If your reimplementation doesn't
 
 | Hostname | Code |
 |---|---|
-| `mondeto.app` | `celo_b057492a` |
-| `celo.org` | `celo_8549372f` |
-| `minipay.io` | `celo_51e51934` |
-| `app.mondeto.app` | `celo_1a8ba29d` |
-| `mondeto.vercel.app` | `celo_04168799` |
+| `mondeto.app` | `celo_b057492a5aa5` |
+| `celo.org` | `celo_8549372f8229` |
+| `minipay.io` | `celo_51e519342b9a` |
+| `app.mondeto.app` | `celo_1a8ba29dac7a` |
+| `mondeto.vercel.app` | `celo_04168799c492` |
 
 Sanity check from any shell:
 
 ```bash
-printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-8
-# → b057492a
+printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-12
+# → b057492a5aa5
 ```
 
 The full design rationale (why plain SHA-256 over HMAC, why integrity moves to the attribution layer) is in [`docs/minipay-attribution.md`](docs/minipay-attribution.md).
 
 ## Resolving codes to apps (for now: a single hostname lookup)
 
-For the test phase, codes are produced by a single path: hostname-derived for MiniPay apps. To map a `celo_xxxxxxxx` back to an app, take MiniPay's approved-app list (Vinay shares this — it's a list of hostnames), compute `codeFromHostname(host)` for each, and that's your lookup table.
+For the test phase, codes are produced by a single path: hostname-derived for MiniPay apps. To map a `celo_xxxxxxxx` back to an app, take MiniPay's approved-app list (the existing developer-intake hostnames), compute `codeFromHostname(host)` for each, and that's your lookup table.
 
 You don't need anything fancier than that to ship the first dashboard.
 
@@ -142,7 +142,7 @@ multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a"
 
 ## Roadmap — what changes when MiniPay tags at the wallet layer
 
-App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**.
+App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**. The wallet-side recommendation is in [`docs/minipay-wallet-integration.md`](docs/minipay-wallet-integration.md).
 
 When that ships, the on-chain shape for any MiniPay tx becomes:
 
@@ -165,7 +165,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 
-Install: `npm install @gigahierz/builder-codes@next viem`
+Install: `npm install @celo/builder-codes viem`
 
 ## Reference
 

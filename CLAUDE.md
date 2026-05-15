@@ -71,7 +71,7 @@ These are deferred. Don't add them when iterating.
 
 ## How to work in this repo
 
-- SDK changes: `cd sdk && npm install && npm test` to run vectors.
+- SDK changes: `cd sdk && pnpm install && pnpm test` to run vectors. The SDK uses pnpm (pinned via `packageManager` in `sdk/package.json`); `npm install` is ignored on purpose because its lockfile-on-macOS strips Linux esbuild entries and breaks CI.
 - Server changes: `cd distribution-server && npm install && npm run dev`.
 - Need a tagged tx fixture for Chidi? Run `/test-fixture` (see `.claude/commands/`) — it sends a tagged self-transfer on Sepolia and prints the hash + a copy-pasteable Telegram message.
 

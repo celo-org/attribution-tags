@@ -17,7 +17,7 @@ Steps:
 
 4. Once the tx is fetched, also call `client.getTransactionReceipt({ hash })` to get the success/failure status.
 
-5. Decode the suffix using `fromDataSuffix(tx.input)` from `@celo-org/attribution-tags` (or the local SDK source).
+5. Decode the suffix using `fromDataSuffix(tx.input)` from `@celo/attribution-tags` (or the local SDK source).
 
 6. Print a result block:
    ```

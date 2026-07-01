@@ -12,7 +12,7 @@ Steps:
    - Otherwise pass as a single code.
    - Validate every code matches `/^[a-z0-9_]{1,32}$/` before encoding.
 
-3. Compute the dataSuffix using `toDataSuffix` from `@celo-org/attribution-tags` (or the local SDK source if not yet published).
+3. Compute the dataSuffix using `toDataSuffix` from `@celo/attribution-tags` (or the local SDK source if not yet published).
 
 4. Build a viem `WalletClient` on Celo Sepolia using the private key. Send a self-transfer of `0.001 CELO` to the wallet's own address, with the dataSuffix appended to (or used as) the calldata.
 

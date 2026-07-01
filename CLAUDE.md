@@ -4,7 +4,7 @@
 
 A lean ERC-8021 attribution system for Celo. Audience, in priority order: MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly. Celo-only — do not pitch interop with other chains as a feature. Two ship pieces:
 
-1. **SDK** (`sdk/`) — npm package `@celo-org/attribution-tags`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
+1. **SDK** (`sdk/`) — npm package `@celo/attribution-tags`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
 2. **Distribution server** (`distribution-server/`) — Next.js form on Vercel. Builders enter Talent Protocol passport ID, Telegram, email; backend validates against TP API, generates a random `celo_xxxxxxxx` code, stores it in Airtable, returns the code.
 
 Chidi (separate workstream, Dune dbt model) reads the Airtable lookup as a Dune-uploaded dataset and joins it against on-chain attributed transactions. Nothing in this repo touches Dune; the bridge is the Airtable.
@@ -23,7 +23,7 @@ Chidi (separate workstream, Dune dbt model) reads the Airtable lookup as a Dune-
 - **Code generation:** server-side, random, collision-checked against Airtable.
 - **No on-chain registry.** Codes live in Airtable only. NFT registry is a future phase, intentionally out of scope.
 - **No Wagmi sub-export, no viem sub-export, no React hooks.** Single entry point; three exports: `toDataSuffix`, `fromDataSuffix`, `verifyTx`.
-- **npm scope:** `@celo-org` (matches `celopedia-skills` and other Celo packages).
+- **npm scope:** `@celo` — Celo's established npm scope (e.g. `@celo/contractkit`), owned by cLabs and published tokenlessly via OIDC. Note: `celo-org` is the *GitHub* org, not the npm scope — don't confuse the two.
 - **Wire format:** ERC-8021 Schema 0. Suffix layout (reading left-to-right): `[code:N][length:1][schema:1][marker:16]`. **Length comes AFTER the code, not before** — this is what makes parsing-from-end clean. Marker constant: `0x80218021802180218021802180218021`. Multi-code via comma-delimited list inside the code field.
 
 ## Not in scope (do not build)
@@ -59,7 +59,7 @@ These are deferred. Don't add them when iterating.
 │   ├── minipay-attribution.md         # the auto-derive design rationale
 │   └── integration-reports/
 │       └── mondeto.md                 # first real consumer integration report
-├── sdk/                               # @celo-org/attribution-tags
+├── sdk/                               # @celo/attribution-tags
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tsup.config.ts
@@ -87,7 +87,7 @@ See `.claude/commands/README.md` for details.
 
 ## Open questions still on the table
 
-- npm scope `@celo-org` confirmed. Publish access? (Confirm with whoever publishes `celo-org/celopedia-skills`.)
+- npm scope is `@celo` (the predecessor package `@celo/builder-codes` is already published here, tokenlessly via OIDC on `v*` tags). After the rename, the cLabs apps-tooling team must re-point the npm Trusted Publisher to the renamed repo (`celo-org/attribution-tags` / `publish-sdk.yml`) and configure it for the new package name `@celo/attribution-tags` before the first release.
 - Talent Protocol API key — Lena has one or needs to request from the TP team?
 - Domain for the distribution server — `attribution-tags.celo.org` (subdomain) vs. Vercel default URL for the test phase. Decision pending; default to Vercel URL until subdomain is wired.
 - Whether to ask Talent Protocol to use `proofofship` as a fixed platform code on PoS-tagged actions.

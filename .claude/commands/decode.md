@@ -6,7 +6,7 @@ Steps:
 
 1. Validate the input is hex. If not, abort with a message.
 
-2. Call `fromDataSuffix(input)` from `@celo-org/attribution-tags`.
+2. Call `fromDataSuffix(input)` from `@celo/attribution-tags`.
 
 3. If the result is `null`, print:
    ```

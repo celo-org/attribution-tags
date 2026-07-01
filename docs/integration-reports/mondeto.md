@@ -1,11 +1,11 @@
 # Integration Report — Mondeto
 
 > Historical snapshot. The SDK has since been renamed to
-> `@celo-org/attribution-tags`; the verbatim code and diff below are
+> `@celo/attribution-tags`; the verbatim code and diff below are
 > preserved as they were run on the date shown.
 
 **Date:** 2026-05-08
-**SDK version:** `@celo-org/attribution-tags@0.1.0` (local tarball)
+**SDK version:** `@celo/attribution-tags@0.1.0` (local tarball)
 **Consumer:** Mondeto (Next.js 14 + wagmi 2 + viem 2 + Privy, pnpm + Turborepo monorepo)
 **Outcome:** Working end-to-end. One real on-chain transaction tagged and decoded successfully.
 

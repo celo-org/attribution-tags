@@ -64,7 +64,7 @@ def parse_suffix(input_bytes):
 For a TS-side equivalent, you can use this repo's SDK directly:
 
 ```ts
-import { fromDataSuffix } from '@celo-org/attribution-tags'
+import { fromDataSuffix } from '@celo/attribution-tags'
 
 fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
@@ -79,7 +79,7 @@ Two real transactions you can plug into your parser to test it. Both have status
 | `Mondeto.updateProfile(uint24,string,string)` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xfe554a…cef2c74b881`](https://celoscan.io/tx/0xfe554ab86bf3fcd29b56d148f906ac94f05f5e1d415912a7bf371cef2c74b881) | Smallest realistic shape — color + two strings + suffix. Confirms the basic case. |
 | `Mondeto.buyPixels(uint256[])` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xba6c36…792fb162ea`](https://celoscan.io/tx/0xba6c3607c1fbf8ce17c8c18bacb102678e42b3f212de677921bb39792fb162ea) | Realistic dynamic-array calldata with the suffix at the end. Confirms tail-of-input handling. |
 
-`celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo-org/attribution-tags@0.2.0`.
+`celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo/attribution-tags@0.2.0`.
 
 **Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field — but indexers should accept any code length from 1–32 bytes, not just the current 12-char shape.
 
@@ -173,7 +173,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 
-Install: `npm install @celo-org/attribution-tags viem`
+Install: `npm install @celo/attribution-tags viem`
 
 ## Reference
 

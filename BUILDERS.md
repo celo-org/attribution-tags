@@ -12,7 +12,7 @@ If you're writing a parser, indexer, or Dune model for tagged transactions inste
 
 ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-`@celo-org/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you four exports:
+`@celo/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you four exports:
 
 ```ts
 toDataSuffix(code | [codes])               // → encoded suffix (Hex)
@@ -24,7 +24,7 @@ verifyTx({ client, hash })                 // → { codes, schemaId } | null
 ## Install
 
 ```bash
-npm install @celo-org/attribution-tags viem
+npm install @celo/attribution-tags viem
 # or pnpm add / yarn add — same args
 ```
 
@@ -35,7 +35,7 @@ npm install @celo-org/attribution-tags viem
 If you're shipping a MiniPay mini app, **you don't need to register or be issued a code**. The SDK derives a deterministic per-app code from your hostname. Same hostname → same code, every time, anywhere it runs:
 
 ```ts
-import { toDataSuffix, codeFromHostname } from '@celo-org/attribution-tags'
+import { toDataSuffix, codeFromHostname } from '@celo/attribution-tags'
 
 const tag = toDataSuffix(codeFromHostname(location.hostname))
 
@@ -58,7 +58,7 @@ Apps not in MiniPay's approved-app list will still produce a code on-chain, but 
 If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path, pass it directly:
 
 ```ts
-import { toDataSuffix } from '@celo-org/attribution-tags'
+import { toDataSuffix } from '@celo/attribution-tags'
 
 const tag = toDataSuffix('celo_b7k3p9da')
 
@@ -101,7 +101,7 @@ writeContract({
 
 ```ts
 // lib/attribution-tag.ts
-import { toDataSuffix, codeFromHostname } from '@celo-org/attribution-tags'
+import { toDataSuffix, codeFromHostname } from '@celo/attribution-tags'
 import type { Hex } from 'viem'
 
 let cached: Hex | null = null
@@ -124,7 +124,7 @@ The `typeof window === 'undefined'` check makes the function a no-op on the serv
 
 ```tsx
 'use client'
-import { toDataSuffix, codeFromHostname } from '@celo-org/attribution-tags'
+import { toDataSuffix, codeFromHostname } from '@celo/attribution-tags'
 
 export const ATTRIBUTION_SUFFIX = toDataSuffix(codeFromHostname(window.location.hostname))
 ```
@@ -147,7 +147,7 @@ The combined on-chain shape `minipay,celo_xxxxxxxx` is what eventually appears o
 Once you've sent a tagged transaction, confirm the suffix is on-chain:
 
 ```ts
-import { verifyTx } from '@celo-org/attribution-tags'
+import { verifyTx } from '@celo/attribution-tags'
 import { createPublicClient, http } from 'viem'
 import { celo } from 'viem/chains'
 
@@ -162,7 +162,7 @@ console.log(result) // { codes: ["celo_b7k3p9da"], schemaId: 0 }
 For offline debugging without an RPC roundtrip:
 
 ```ts
-import { fromDataSuffix } from '@celo-org/attribution-tags'
+import { fromDataSuffix } from '@celo/attribution-tags'
 
 fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
@@ -186,7 +186,7 @@ If you want to query the data yourself, see [`INDEXERS.md`](INDEXERS.md) — it 
 ## Reference
 
 - Full SDK API: [`sdk/README.md`](sdk/README.md)
-- npm package: https://www.npmjs.com/package/@celo-org/attribution-tags
+- npm package: https://www.npmjs.com/package/@celo/attribution-tags
 - Source: https://github.com/celo-org/attribution-tags
 
 ## Questions

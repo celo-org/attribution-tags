@@ -16,7 +16,7 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 ├── README.md                      (this overview)
 ├── BUILDERS.md                    (for app builders)
 ├── INDEXERS.md                    (for parsers, indexers, Dune models)
-├── sdk/                           (the npm package — @celo-org/attribution-tags)
+├── sdk/                           (the npm package — @celo/attribution-tags)
 │   ├── src/index.ts
 │   ├── tests/
 │   ├── package.json
@@ -29,7 +29,7 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 
 ## Status
 
-The SDK is published on npm as [`@celo-org/attribution-tags`](https://www.npmjs.com/package/@celo-org/attribution-tags). The wire format and derivation algorithm are stable.
+The SDK is published on npm as [`@celo/attribution-tags`](https://www.npmjs.com/package/@celo/attribution-tags). The wire format and derivation algorithm are stable.
 
 ## Contact
 

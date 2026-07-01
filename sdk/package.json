@@ -1,7 +1,7 @@
 {
-  "name": "@celo/builder-codes",
+  "name": "@celo-org/attribution-tags",
   "version": "0.2.0",
-  "description": "ERC-8021 builder-code attribution for Celo. One-line tagging and verification on top of ox.",
+  "description": "ERC-8021 attribution for Celo. One-line tagging and verification on top of ox.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -58,12 +58,12 @@
   "keywords": [
     "celo",
     "erc-8021",
-    "builder-codes",
+    "attribution-tags",
     "attribution",
     "ox"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/celo-org/builder-codes.git"
+    "url": "git+https://github.com/celo-org/attribution-tags.git"
   }
 }

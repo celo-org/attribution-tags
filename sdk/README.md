@@ -1,6 +1,6 @@
-# @celo/builder-codes
+# @celo-org/attribution-tags
 
-ERC-8021 builder-code attribution **on Celo**. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
+ERC-8021 attribution **on Celo**. One line to tag a transaction; one line to verify it. Wraps [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution).
 
 Built for, in priority order:
 
@@ -13,23 +13,23 @@ The SDK is Celo-only — examples below all use `viem/chains`'s `celo` / `celoSe
 ## Install
 
 ```bash
-npm install @celo/builder-codes viem
+npm install @celo-org/attribution-tags viem
 # or
-pnpm add @celo/builder-codes viem
+pnpm add @celo-org/attribution-tags viem
 # or
-yarn add @celo/builder-codes viem
+yarn add @celo-org/attribution-tags viem
 ```
 
 `viem` is an optional peer dep, only needed if you call `verifyTx`.
 
-> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-builder-codes-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
+> **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-org-attribution-tags-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
 
 ## Usage
 
 ### Tag a transaction
 
 ```ts
-import { toDataSuffix } from "@celo/builder-codes";
+import { toDataSuffix } from "@celo-org/attribution-tags";
 import { createWalletClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -47,7 +47,7 @@ await wallet.sendTransaction({
 ### Verify a transaction
 
 ```ts
-import { verifyTx } from "@celo/builder-codes";
+import { verifyTx } from "@celo-org/attribution-tags";
 import { createPublicClient, http } from "viem";
 import { celo } from "viem/chains";
 
@@ -60,7 +60,7 @@ const result = await verifyTx({ client, hash: "0x..." });
 ### Decode a suffix offline
 
 ```ts
-import { fromDataSuffix } from "@celo/builder-codes";
+import { fromDataSuffix } from "@celo-org/attribution-tags";
 
 fromDataSuffix("0x63656c6f040080218021802180218021802180218021");
 // → { codes: ["celo"], schemaId: 0 }
@@ -96,7 +96,7 @@ fromDataSuffix(suffix: Hex): { codes: string[]; schemaId: number } | null
 verifyTx({ client, hash }): Promise<{ codes: string[]; schemaId: number } | null>
 codeFromHostname(hostname: string): string  // → "celo_xxxxxxxx"
 
-type BuilderCodeSuffix = Hex  // alias for the toDataSuffix return type
+type AttributionTagSuffix = Hex  // alias for the toDataSuffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
 

@@ -1,7 +1,11 @@
 # Integration Report — Mondeto
 
+> Historical snapshot. The SDK has since been renamed to
+> `@celo-org/attribution-tags`; the verbatim code and diff below are
+> preserved as they were run on the date shown.
+
 **Date:** 2026-05-08
-**SDK version:** `@celo/builder-codes@0.1.0` (local tarball)
+**SDK version:** `@celo-org/attribution-tags@0.1.0` (local tarball)
 **Consumer:** Mondeto (Next.js 14 + wagmi 2 + viem 2 + Privy, pnpm + Turborepo monorepo)
 **Outcome:** Working end-to-end. One real on-chain transaction tagged and decoded successfully.
 
@@ -82,7 +86,7 @@ A live `buyPixels` transaction on Celo Sepolia carried this calldata:
 
 4. **`fromDataSuffix` returning `null` on bad input is good**, but the schema-id check could be tighter — currently it returns whatever `Attribution.getSchemaId` produces, including for non-zero schemas the SDK doesn't know about. Consumers verifying their own tx can't tell from the return type whether they're on an expected schema. A `expectedSchemaId?: number` arg or an explicit `schemaId === 0` filter would make consumer code shorter.
 
-5. **No exported type for the cached suffix shape.** The SDK exports `DecodedSuffix` but not a named type for the `toDataSuffix` return (it's `Hex.Hex` from ox). Consumers using viem will reach for `viem`'s `Hex` and cast — works fine, but a re-exported `BuilderCodeSuffix = Hex.Hex` alias would document the intent.
+5. **No exported type for the cached suffix shape.** The SDK exports `DecodedSuffix` but not a named type for the `toDataSuffix` return (it's `Hex.Hex` from ox). Consumers using viem will reach for `viem`'s `Hex` and cast — works fine, but a re-exported `AttributionTagSuffix = Hex.Hex` alias would document the intent.
 
 6. **`codeFromHostname` strips `www.` but nothing else.** Mondeto runs on Vercel preview URLs (`mondeto-fe-git-feat-x.vercel.app`), which would each get a distinct code. That's probably the right behavior, but the `minipay-attribution.md` design doc doesn't say so explicitly — worth a sentence on whether preview/staging hostnames are expected to attribute distinctly, and if so, how teams should aggregate them.
 
@@ -96,7 +100,7 @@ A live `buyPixels` transaction on Celo Sepolia carried this calldata:
 | Tarball install path is absolute | docs nit |
 | SSR-safety not documented | docs gap (real bite) |
 | `fromDataSuffix` schema-id ergonomics | minor API |
-| Missing `BuilderCodeSuffix` type re-export | minor API |
+| Missing `AttributionTagSuffix` type re-export | minor API |
 | Preview-URL behavior under-specified | docs gap |
 
 Nothing blocking. The SDK shipped a working integration in well under an hour of consumer-side work, including the cache-clear + dev-server cycle from the dep install.

@@ -1,10 +1,10 @@
-# Celo Builder Codes — Claude Code Context
+# Celo Attribution Tags — Claude Code Context
 
 ## What this project is
 
-A lean ERC-8021 builder-code attribution system for Celo. Audience, in priority order: MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly. Celo-only — do not pitch interop with other chains as a feature. Two ship pieces:
+A lean ERC-8021 attribution system for Celo. Audience, in priority order: MiniPay apps, Proof of Ship cohort projects, Celo ecosystem projects more broadly. Celo-only — do not pitch interop with other chains as a feature. Two ship pieces:
 
-1. **SDK** (`sdk/`) — npm package `@celo/builder-codes`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
+1. **SDK** (`sdk/`) — npm package `@celo-org/attribution-tags`. Wraps `ox/erc8021` so any Celo app can tag transactions with one line.
 2. **Distribution server** (`distribution-server/`) — Next.js form on Vercel. Builders enter Talent Protocol passport ID, Telegram, email; backend validates against TP API, generates a random `celo_xxxxxxxx` code, stores it in Airtable, returns the code.
 
 Chidi (separate workstream, Dune dbt model) reads the Airtable lookup as a Dune-uploaded dataset and joins it against on-chain attributed transactions. Nothing in this repo touches Dune; the bridge is the Airtable.
@@ -44,7 +44,7 @@ These are deferred. Don't add them when iterating.
 - All payments referenced in any agreement = USDT on Celo.
 - Talent Protocol API: `X-API-KEY` header. Base URL `https://api.talentprotocol.com/api/v2`. Endpoint we use: `/passports/{id}` (accepts numeric ID, wallet address, or username).
 - The verifier function fetches a tx via viem and decodes the suffix; if no marker present, returns null. No throwing.
-- Vector tests are the source of truth for wire-format correctness. The canonical ERC-8021 reference vector — `toDataSuffix("baseapp")` → `0x62617365617070070080218021802180218021802180218021` — is the conformance check used by every ERC-8021 implementation (it's the example string in the ox docs); if ours doesn't match, something is wrong with the `ox` import. This is a standard-conformance check, not a positioning statement — never frame builder-codes as "Base-compatible."
+- Vector tests are the source of truth for wire-format correctness. The canonical ERC-8021 reference vector — `toDataSuffix("baseapp")` → `0x62617365617070070080218021802180218021802180218021` — is the conformance check used by every ERC-8021 implementation (it's the example string in the ox docs); if ours doesn't match, something is wrong with the `ox` import. This is a standard-conformance check, not a positioning statement — never frame attribution-tags as "Base-compatible."
 
 ## Layout
 
@@ -59,7 +59,7 @@ These are deferred. Don't add them when iterating.
 │   ├── minipay-attribution.md         # the auto-derive design rationale
 │   └── integration-reports/
 │       └── mondeto.md                 # first real consumer integration report
-├── sdk/                               # @celo/builder-codes (eventual @celo/builder-codes)
+├── sdk/                               # @celo-org/attribution-tags
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tsup.config.ts
@@ -89,5 +89,5 @@ See `.claude/commands/README.md` for details.
 
 - npm scope `@celo-org` confirmed. Publish access? (Confirm with whoever publishes `celo-org/celopedia-skills`.)
 - Talent Protocol API key — Lena has one or needs to request from the TP team?
-- Domain for the distribution server — `builder-codes.celo.org` (subdomain) vs. Vercel default URL for the test phase. Decision pending; default to Vercel URL until subdomain is wired.
+- Domain for the distribution server — `attribution-tags.celo.org` (subdomain) vs. Vercel default URL for the test phase. Decision pending; default to Vercel URL until subdomain is wired.
 - Whether to ask Talent Protocol to use `proofofship` as a fixed platform code on PoS-tagged actions.

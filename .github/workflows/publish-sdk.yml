@@ -13,15 +13,21 @@ jobs:
       run:
         working-directory: sdk
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
+      # Actions pinned to full-length commit SHAs (supply-chain hardening).
+      # The trailing comment records the human-readable version; bump via Dependabot.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           package_json_file: sdk/package.json
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
           cache-dependency-path: sdk/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm publish --access public --no-git-checks
+      # --provenance emits a signed build attestation (which commit + CI run built
+      # this tarball). Requires id-token: write (above) and OIDC-based publishing.
+      - run: pnpm publish --access public --no-git-checks --provenance

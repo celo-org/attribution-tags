@@ -1,8 +1,8 @@
-# Celo Builder Codes — for indexers and parsers
+# Celo Attribution Tags — for indexers and parsers
 
 **Lena Hierzi, DevRel Lead, Celo Core Co — 8 May 2026**
 
-You're writing a parser, indexer, or Dune model that needs to identify Celo transactions tagged with builder-code attribution and pull the code out. This is the guide for that.
+You're writing a parser, indexer, or Dune model that needs to identify Celo transactions tagged with ERC-8021 attribution and pull the code out. This is the guide for that.
 
 If you're shipping an app and want to *produce* tagged transactions instead, see [`BUILDERS.md`](BUILDERS.md).
 
@@ -64,7 +64,7 @@ def parse_suffix(input_bytes):
 For a TS-side equivalent, you can use this repo's SDK directly:
 
 ```ts
-import { fromDataSuffix } from '@celo/builder-codes'
+import { fromDataSuffix } from '@celo-org/attribution-tags'
 
 fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
@@ -79,7 +79,7 @@ Two real transactions you can plug into your parser to test it. Both have status
 | `Mondeto.updateProfile(uint24,string,string)` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xfe554a…cef2c74b881`](https://celoscan.io/tx/0xfe554ab86bf3fcd29b56d148f906ac94f05f5e1d415912a7bf371cef2c74b881) | Smallest realistic shape — color + two strings + suffix. Confirms the basic case. |
 | `Mondeto.buyPixels(uint256[])` | `{ codes: ["celo_ce264747447f"], schemaId: 0 }` | [`0xba6c36…792fb162ea`](https://celoscan.io/tx/0xba6c3607c1fbf8ce17c8c18bacb102678e42b3f212de677921bb39792fb162ea) | Realistic dynamic-array calldata with the suffix at the end. Confirms tail-of-input handling. |
 
-`celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo/builder-codes@0.2.0`.
+`celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo-org/attribution-tags@0.2.0`.
 
 **Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field — but indexers should accept any code length from 1–32 bytes, not just the current 12-char shape.
 
@@ -142,6 +142,12 @@ schema_id                   -- 0 for v1
 multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a"
 ```
 
+> The canonical term is now **attribution code** (`celo_xxxxxxxx`). The column
+> names above (`builder_code`, `builder_name`) are kept as-is to avoid breaking
+> the existing Dune/dbt model; rename them to `attribution_code` /
+> `attribution_name` only in coordination with the dbt-model owner. The on-chain
+> decoded value is unchanged.
+
 ## Roadmap — what changes when MiniPay tags at the wallet layer
 
 App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platform codes are added by the **platform itself**, not by apps. The roadmap item that simplifies your work: MiniPay's wallet will eventually prepend `minipay,` to every tx it signs, **before the app's own suffix is even applied**.
@@ -167,7 +173,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 
-Install: `npm install @celo/builder-codes viem`
+Install: `npm install @celo-org/attribution-tags viem`
 
 ## Reference
 

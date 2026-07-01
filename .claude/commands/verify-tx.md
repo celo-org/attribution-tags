@@ -1,4 +1,4 @@
-Fetch a Celo transaction and decode its ERC-8021 builder-code suffix, if any.
+Fetch a Celo transaction and decode its ERC-8021 attribution suffix, if any.
 
 `$ARGUMENTS` should be a 0x-prefixed transaction hash (66 chars total).
 
@@ -17,7 +17,7 @@ Steps:
 
 4. Once the tx is fetched, also call `client.getTransactionReceipt({ hash })` to get the success/failure status.
 
-5. Decode the suffix using `fromDataSuffix(tx.input)` from `@celo/builder-codes` (or the local SDK source).
+5. Decode the suffix using `fromDataSuffix(tx.input)` from `@celo-org/attribution-tags` (or the local SDK source).
 
 6. Print a result block:
    ```
@@ -28,7 +28,7 @@ Steps:
    To: {to}
    Value: {valueInCelo} CELO
    
-   Builder codes: {codes joined with ", "  | "(none — tx is not tagged)"}
+   Attribution codes: {codes joined with ", "  | "(none — tx is not tagged)"}
    Schema: {schemaId | n/a}
    
    Explorer: https://{celoscan.io | celo-sepolia.blockscout.com}/tx/{hash}

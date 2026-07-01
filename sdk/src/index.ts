@@ -9,7 +9,7 @@ export const ERC_8021_MARKER =
 // Convenience alias for consumers using viem's Hex elsewhere — the
 // types are structurally identical (both are `0x${string}`), but
 // importing this from the SDK documents the intent at the call site.
-export type BuilderCodeSuffix = Hex.Hex;
+export type AttributionTagSuffix = Hex.Hex;
 
 // Intentionally stricter than ERC-8021. Celo distributes codes as
 // celo_xxxxxxxx and uses lowercase platform codes (minipay, proofofship).

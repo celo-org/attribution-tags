@@ -1,7 +1,5 @@
 # Celo Attribution Tags — for indexers and parsers
 
-**Lena Hierzi, DevRel Lead, Celo Core Co — 8 May 2026**
-
 You're writing a parser, indexer, or Dune model that needs to identify Celo transactions tagged with ERC-8021 attribution and pull the code out. This is the guide for that.
 
 If you're shipping an app and want to *produce* tagged transactions instead, see [`BUILDERS.md`](BUILDERS.md).
@@ -15,17 +13,27 @@ Tagged Celo transactions follow [ERC-8021](https://oxlib.sh/ercs/erc8021/Attribu
                                                     0x00     0x80218021…×8
 ```
 
-The suffix is **trailing metadata**: the EVM ignored it when executing the tx, but it's preserved verbatim in the calldata you read back from the chain. To parse a tagged tx, you read the last 35+ bytes of `tx.input` and decode them.
+The suffix is **trailing metadata**: the EVM ignored it when executing the tx, but it's preserved verbatim in the calldata you read back from the chain. To parse a tagged tx, you read the tail of `tx.input` and decode it — the suffix is at least 19 bytes (1-byte code + length + schema + 16-byte marker) and grows with the code field.
 
 ## SQL filter
 
-This is the one-line filter that picks out every tagged Celo tx:
+This is the filter that picks out every tagged Celo tx. On DuneSQL (Trino), `transactions.data` is `varbinary`, so compare bytes — string `LIKE` won't run against it:
 
 ```sql
-WHERE input LIKE '%80218021802180218021802180218021'
+-- fast: compare the 16-byte tail directly
+WHERE length(data) >= 19
+  AND bytearray_substring(data, length(data) - 15, 16) = 0x80218021802180218021802180218021
 ```
 
-The marker is `0x80218021` repeated 8 times (16 bytes total, 32 hex chars). Anywhere it appears at the very end of `input` qualifies. False-positive rate is functionally zero — random calldata ending in this exact 16-byte sequence is astronomically unlikely.
+or, less efficient but easy to eyeball:
+
+```sql
+WHERE to_hex(data) LIKE '%80218021802180218021802180218021'
+```
+
+If your store keeps calldata as a hex *string* (many non-Dune indexers do), the plain `input LIKE '%80218021802180218021802180218021'` form works as-is.
+
+The marker is `0x80218021` repeated 8 times (16 bytes total, 32 hex chars). Anywhere it appears at the very end of the calldata qualifies. False-positive rate is functionally zero — random calldata ending in this exact 16-byte sequence is astronomically unlikely.
 
 ## Decoding logic
 
@@ -34,13 +42,13 @@ Read backwards from the end of `tx.input`:
 | Read position | Field | Notes |
 |---|---|---|
 | Last 16 bytes | **Marker** | Must equal `0x80218021802180218021802180218021`. If not, tx is not tagged — discard. |
-| `[end - 17]` (1 byte) | **Schema ID** | `0x00` for v1. Other values reserved; treat as unknown for now. |
-| `[end - 18]` (1 byte) | **Length `L`** | Bytes 1–32. Says how long the code field is. |
+| `[end - 17]` (1 byte) | **Schema ID** | `0x00` for v1. Other values reserved; treat the tx as untagged (the SDK's `fromDataSuffix` returns `null` for them). |
+| `[end - 18]` (1 byte) | **Length `L`** | 1–255. Says how long the code field is. Note this bounds the whole comma-joined *field* — an individual code is at most 32 bytes, but a multi-code field can legally exceed 32. |
 | `[end - 18 - L]` … `[end - 19]` (L bytes) | **Code field** | ASCII string. Multi-code is comma-delimited inside this string. |
 
 So total suffix length = `L + 18` bytes (= `L + 1 [length] + 1 [schema] + 16 [marker]`).
 
-The code field, decoded as ASCII, is either a single code (`celo_b057492a`) or a comma-delimited list (`minipay,celo_b057492a`). Split on `,` to get the list; we reject commas inside individual codes at the SDK encode layer, so the split is unambiguous.
+The code field, decoded as ASCII, is either a single code (`celo_b057492a5aa5`) or a comma-delimited list (`minipay,celo_b057492a5aa5`). Split on `,` to get the list; we reject commas inside individual codes at the SDK encode layer, so the split is unambiguous.
 
 ## Pseudocode
 
@@ -53,9 +61,13 @@ def parse_suffix(input_bytes):
     if input_bytes[-16:] != MARKER:
         return None
     schema = input_bytes[-17]
+    if schema != 0:
+        return None  # reserved schema — treat as untagged
     code_len = input_bytes[-18]
-    if code_len == 0 or code_len > 32:
+    if code_len == 0:
         return None
+    if len(input_bytes) < 18 + code_len:
+        return None  # claimed code field longer than the calldata — corrupt
     code_field = input_bytes[-18 - code_len : -18].decode("ascii")
     codes = code_field.split(",")
     return {"codes": codes, "schema_id": schema}
@@ -70,6 +82,8 @@ fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
 ```
 
+`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 tag: no marker, a reserved schema ID (≠ 0), or an empty code field.
+
 ## Example txs (verified live on Celo Mainnet)
 
 Two real transactions you can plug into your parser to test it. Both have status: success. Both produced by the SDK in this repo, on the corrected (single-code) pattern.
@@ -81,7 +95,7 @@ Two real transactions you can plug into your parser to test it. Both have status
 
 `celo_ce264747447f` is `codeFromHostname("mondeto-web.vercel.app")` — both txs were sent from the production Mondeto frontend, decoded cleanly against `@celo/attribution-tags@0.2.0`.
 
-**Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field — but indexers should accept any code length from 1–32 bytes, not just the current 12-char shape.
+**Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field. Indexers should accept any code *field* length the length byte can express (1–255 bytes; individual codes are at most 32, but a comma-joined multi-code field can exceed 32), not just the current shapes.
 
 ## The hostname-derivation algorithm
 
@@ -119,7 +133,7 @@ The design choice (plain SHA-256 over HMAC) is deliberate: once a tagged tx is o
 
 ## Resolving codes to apps (for now: a single hostname lookup)
 
-For the test phase, codes are produced by a single path: hostname-derived for MiniPay apps. To map a `celo_xxxxxxxx` back to an app, take MiniPay's approved-app list (the existing developer-intake hostnames), compute `codeFromHostname(host)` for each, and that's your lookup table.
+For the test phase, most codes are hostname-derived for MiniPay apps. To map a `celo_xxxxxxxx` back to an app, take MiniPay's approved-app list (the existing developer-intake hostnames), compute `codeFromHostname(host)` for each, and that's your lookup table. Issued and custom codes (apps can bring their own) resolve through the codes lookup table instead — same join, different source.
 
 You don't need anything fancier than that to ship the first dashboard.
 
@@ -136,10 +150,10 @@ value
 contract_called             -- the contract `tx.to`
 function_selector           -- first 4 bytes of the original calldata (before the suffix)
 success                     -- from the receipt
-builder_code                -- the decoded code, e.g. "celo_b057492a"
+builder_code                -- the decoded code, e.g. "celo_b057492a5aa5"
 builder_name                -- joined from the codes lookup table (nullable)
 schema_id                   -- 0 for v1
-multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a"
+multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a5aa5"
 ```
 
 > The canonical term is now **attribution code** (`celo_xxxxxxxx`). The column
@@ -155,8 +169,9 @@ App-level SDKs in this repo emit only the per-app code (`celo_xxxxxxxx`). Platfo
 When that ships, the on-chain shape for any MiniPay tx becomes:
 
 ```
-[code:N=21][len:0x15][schema:0x00][marker]
-where the code field is "minipay,celo_xxxxxxxx"
+[code:N=25][len:0x19][schema:0x00][marker]
+where the code field is "minipay,celo_xxxxxxxxxxxx"
+(7 + 1 + 17 = 25 bytes for a hostname-derived celo_ + 12-hex-char code)
 ```
 
 That makes filtering for MiniPay txs trivial — split the code field on `,`, look for `minipay` in the resulting list. No hostname lookup needed at all to identify *which platform* a tx came through. You'd still want the hostname → code lookup if you want to identify *which specific MiniPay app* sent the tx, but the platform-attribution question becomes a one-line filter.

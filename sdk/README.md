@@ -85,20 +85,23 @@ The marker constant is exported as `ERC_8021_MARKER`.
 
 - are empty or longer than 32 bytes
 - contain anything outside `[a-z0-9_]` (no uppercase, no spaces, no commas)
+- comma-joined, exceed 255 bytes total (the wire format's length byte caps the multi-code field)
 
-This is stricter than ERC-8021 itself but matches the format Celo distributes (`celo_xxxxxxxx`) and the platform codes used in the Celo ecosystem (`minipay`, `proofofship`).
+This is stricter than ERC-8021 itself but matches the format Celo distributes (`celo_xxxxxxxx`) and the platform codes used in the Celo ecosystem (`minipay`, `proofofship`). Within those bounds any code works — issued, hostname-derived, or a custom one you pick for your app.
 
 ## API
 
 ```ts
 toDataSuffix(code: string | readonly string[]): Hex
-fromDataSuffix(suffix: Hex): { codes: string[]; schemaId: number } | null
+fromDataSuffix(data: Hex): { codes: string[]; schemaId: number } | null
 verifyTx({ client, hash }): Promise<{ codes: string[]; schemaId: number } | null>
-codeFromHostname(hostname: string): string  // → "celo_xxxxxxxx"
+codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
 
 type AttributionTagSuffix = Hex  // alias for the toDataSuffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
+
+`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 tag: no marker, a reserved schema ID (≠ 0, e.g. Schema 1 custom-registry tags), or an empty code field.
 
 `verifyTx` never throws — RPC errors return `null`.
 

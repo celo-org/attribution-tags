@@ -1,7 +1,17 @@
 import { Attribution } from "ox/erc8021";
 import { Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
-import type { Hash, PublicClient } from "viem";
+
+// Structural stand-ins for viem's Hash / PublicClient. viem is an
+// optional peer dep — importing its types here would leak into the
+// published .d.ts and break TS consumers who don't install it.
+export type TxHash = `0x${string}`;
+
+export interface TxClient {
+  getTransaction(args: {
+    hash: TxHash;
+  }): Promise<{ input?: string } | null | undefined>;
+}
 
 export const ERC_8021_MARKER =
   "0x80218021802180218021802180218021" as const;
@@ -31,10 +41,20 @@ function normalizeCodes(input: string | readonly string[]): string[] {
       );
     }
   }
+  // The wire format stores the comma-joined code field's length in a
+  // single byte, so the joined field is capped at 255 bytes.
+  const joinedLength = arr.join(",").length;
+  if (joinedLength > 255) {
+    throw new Error(
+      `toDataSuffix: combined codes are ${joinedLength} bytes (comma-joined) — the ERC-8021 length byte caps the code field at 255 bytes; use fewer or shorter codes`,
+    );
+  }
   return arr;
 }
 
-export function toDataSuffix(code: string | readonly string[]): Hex.Hex {
+export function toDataSuffix(
+  code: string | readonly string[],
+): AttributionTagSuffix {
   const codes = normalizeCodes(code);
   return Attribution.toDataSuffix({ codes });
 }
@@ -53,15 +73,21 @@ export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
   }
   if (!attr) return null;
 
-  const codes = [...((attr as { codes?: readonly string[] }).codes ?? [])];
+  // Celo attribution is Schema 0 only. Other schemas (e.g. Schema 1's
+  // custom code registry) carry codes that are NOT canonical Celo codes —
+  // treat them as untagged rather than let them masquerade as ours.
   const schemaId = Attribution.getSchemaId(attr);
+  if (schemaId !== 0) return null;
+
+  const codes = [...attr.codes];
+  if (codes.length === 0) return null;
 
   return { codes, schemaId };
 }
 
 export interface VerifyTxArgs {
-  client: PublicClient;
-  hash: Hash;
+  client: TxClient;
+  hash: TxHash;
 }
 
 export async function verifyTx(

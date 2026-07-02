@@ -1,7 +1,5 @@
 # Celo Attribution Tags — for app builders
 
-**Lena Hierzi, DevRel Lead, Celo Core Co — 8 May 2026**
-
 You're shipping an app on Celo and you want your transactions to be attributable to your app. This is the guide for that. Two steps: install the SDK, append the suffix.
 
 **Who this is for:** MiniPay app builders, Proof of Ship cohort projects, and Celo ecosystem projects that want their on-chain activity attributed to them. The rest of this guide assumes you're sending transactions to Celo Mainnet (or Celo Sepolia for testing).
@@ -16,10 +14,12 @@ ERC-8021 is the standard for appending a small attribution suffix to a transacti
 
 ```ts
 toDataSuffix(code | [codes])               // → encoded suffix (Hex)
-codeFromHostname(hostname)                 // → "celo_xxxxxxxx" derived from a hostname
-fromDataSuffix(suffix)                     // → { codes, schemaId } | null
+codeFromHostname(hostname)                 // → "celo_" + 12 hex chars, derived from a hostname
+fromDataSuffix(data)                       // → { codes, schemaId } | null
 verifyTx({ client, hash })                 // → { codes, schemaId } | null
 ```
+
+There are two ways to get a code, and both are fully supported: derive one from your hostname (zero registration), or bring your own — an issued `celo_xxxxxxxx` code or any custom code you pick for your app. Tagging is open to everyone; which codes get *credited* on the attribution dashboard is resolved at the registry/indexer layer, not at the tagging step.
 
 ## Install
 
@@ -53,17 +53,20 @@ printf "%s" "mondeto.app" | shasum -a 256 | cut -c1-12
 
 Apps not in MiniPay's approved-app list will still produce a code on-chain, but the attribution dashboard only credits codes whose hostnames are on the list — so the credit step is gated, not the tagging step.
 
-## Quickstart — issued codes (Proof of Ship and others)
+## Quickstart — your own code (issued or custom)
 
-If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path, pass it directly:
+If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path — or you simply want to pick your own — pass it directly:
 
 ```ts
 import { toDataSuffix } from '@celo/attribution-tags'
 
-const tag = toDataSuffix('celo_b7k3p9da')
+const tag = toDataSuffix('celo_b7k3p9da')   // issued code — or a custom
+                                            // one, e.g. toDataSuffix('myapp')
 
 await wallet.sendTransaction({ to, value, data: tag })
 ```
+
+Any string matching `[a-z0-9_]` (1–32 chars) is a valid code on the wire. Custom codes tag your transactions just as well; getting them recognized on the attribution dashboard is a registry-layer step — reach out via the contact at the bottom if you want your custom code credited.
 
 For local development before you have a real code, hardcode `celo_test1234` so you can iterate.
 
@@ -120,16 +123,24 @@ export function getAttributionSuffix(): Hex | undefined {
 
 The `typeof window === 'undefined'` check makes the function a no-op on the server. The cache means SHA-256 runs once per session, not once per render.
 
-**Pattern B — derive at module init in a `"use client"` file:**
+**Pattern B — derive inside an event handler or effect:**
 
 ```tsx
 'use client'
 import { toDataSuffix, codeFromHostname } from '@celo/attribution-tags'
 
-export const ATTRIBUTION_SUFFIX = toDataSuffix(codeFromHostname(window.location.hostname))
+function SendButton() {
+  async function onSend() {
+    const tag = toDataSuffix(codeFromHostname(window.location.hostname))
+    await wallet.sendTransaction({ to, value, data: tag })
+  }
+  return <button onClick={onSend}>Send</button>
+}
 ```
 
-Only do this in a file marked `"use client"`. Importing it from a server component will throw at build time.
+Event handlers and `useEffect` bodies only run in the browser, so `window` is always defined there.
+
+One thing that does **not** work: deriving at module init (top level) in a `"use client"` file. `"use client"` components are still executed on the server during SSR/prerendering — the directive marks the client boundary, it doesn't make the module browser-only — so top-level `window.location` throws `ReferenceError` the first time the server renders the page.
 
 ## The layering rule — apps don't add platform codes
 

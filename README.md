@@ -21,9 +21,6 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 │   ├── tests/
 │   ├── package.json
 │   └── README.md                  (full SDK API reference)
-├── docs/
-│   └── integration-reports/
-│       └── mondeto.md             (first real consumer integration)
 └── .claude/commands/              (Claude Code slash commands for testing)
 ```
 

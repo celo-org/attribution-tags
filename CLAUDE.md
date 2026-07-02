@@ -54,11 +54,6 @@ These are deferred. Don't add them when iterating.
 ├── README.md                          # short overview routing to the two audience READMEs
 ├── BUILDERS.md                        # for app builders shipping on Celo
 ├── INDEXERS.md                        # for parsers / indexers / Dune model authors
-├── docs/
-│   ├── implementation-plan.md         # the sharable plan + May 7 update
-│   ├── minipay-attribution.md         # the auto-derive design rationale
-│   └── integration-reports/
-│       └── mondeto.md                 # first real consumer integration report
 ├── sdk/                               # @celo/attribution-tags
 │   ├── package.json
 │   ├── tsconfig.json
@@ -66,7 +61,7 @@ These are deferred. Don't add them when iterating.
 │   ├── src/index.ts
 │   ├── tests/{vectors,verify-tx,hostname}.test.ts
 │   └── README.md
-└── distribution-server/               # paused — see May 7 update in implementation-plan.md
+└── distribution-server/               # paused
 ```
 
 ## How to work in this repo

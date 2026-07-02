@@ -16,12 +16,11 @@ Built for, in priority order: **MiniPay** apps, **Proof of Ship** cohort project
 ├── README.md                      (this overview)
 ├── BUILDERS.md                    (for app builders)
 ├── INDEXERS.md                    (for parsers, indexers, Dune models)
-├── sdk/                           (the npm package — @celo/attribution-tags)
-│   ├── src/index.ts
-│   ├── tests/
-│   ├── package.json
-│   └── README.md                  (full SDK API reference)
-└── .claude/commands/              (Claude Code slash commands for testing)
+└── sdk/                           (the npm package — @celo/attribution-tags)
+    ├── src/index.ts
+    ├── tests/
+    ├── package.json
+    └── README.md                  (full SDK API reference)
 ```
 
 ## Status

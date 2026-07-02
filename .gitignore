@@ -5,3 +5,8 @@ dist
 .env
 .env.local
 coverage
+
+# Local-only tooling and internal context — not part of the public repo
+CLAUDE.md
+.claude/
+.env.example

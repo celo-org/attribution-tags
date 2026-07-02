@@ -1,6 +1,6 @@
 {
   "name": "@celo/attribution-tags",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ERC-8021 attribution for Celo. One-line tagging and verification on top of ox.",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [

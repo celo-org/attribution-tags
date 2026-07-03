@@ -57,7 +57,15 @@ Apps not in MiniPay's approved-app list will still produce a code on-chain, but 
 
 If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path — or you simply want to pick your own — pass it directly.
 
-**If a program assigned you a code, that code wins.** Hackathons and cohort programs (e.g. Celo Builders hackathon registration, Proof of Ship onboarding) assign your code when you register — often derived from something other than your hostname, such as your GitHub repository. Leaderboards and reward programs only credit the assigned code: a code you self-derive with `codeFromHostname` is a *different* value and will silently never be credited, even though the transactions look correctly tagged on-chain. Inside any program, hardcode the assigned code; don't derive at runtime.
+**If a program assigned you a code, it must be in the suffix.** Hackathons and cohort programs (e.g. Celo Builders hackathon registration, Proof of Ship onboarding) assign your code when you register — often derived from something other than your hostname, such as your GitHub repository. Leaderboards and reward programs only credit the assigned code: a code you self-derive with `codeFromHostname` is a *different* value and will silently never be credited on its own, even though the transactions look correctly tagged on-chain.
+
+You don't have to drop your own code — ERC-8021 suffixes carry multiple codes. Pass an array that includes the assigned one:
+
+```ts
+const tag = toDataSuffix(['your_own_code', 'celo_assigned1234'])
+```
+
+Both codes ride the same transaction; the program credits its assigned code, your own analytics keep working. (The layering rule still applies — only add codes that represent your own app, never platform codes like `minipay`.)
 
 ```ts
 import { toDataSuffix } from '@celo/attribution-tags'
@@ -72,7 +80,7 @@ Any string matching `[a-z0-9_]` (1–32 chars) is a valid code on the wire. Cust
 
 For local development before you have a real code, hardcode `celo_test1234` so you can iterate.
 
-After your first tagged transaction, close the loop: decode it with `verifyTx` and confirm the on-chain code equals the code you were assigned. This one check catches the self-derived-code mistake.
+After your first tagged transaction, close the loop: decode it with `verifyTx` and confirm the on-chain codes include the one you were assigned. This one check catches the missing-assigned-code mistake.
 
 ## If you're calling a contract method
 

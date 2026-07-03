@@ -55,7 +55,9 @@ Apps not in MiniPay's approved-app list will still produce a code on-chain, but 
 
 ## Quickstart — your own code (issued or custom)
 
-If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path — or you simply want to pick your own — pass it directly:
+If you've been issued a code (`celo_xxxxxxxx`) through Proof of Ship onboarding or another path — or you simply want to pick your own — pass it directly.
+
+**If a program assigned you a code, that code wins.** Hackathons and cohort programs (e.g. Celo Builders hackathon registration, Proof of Ship onboarding) assign your code when you register — often derived from something other than your hostname, such as your GitHub repository. Leaderboards and reward programs only credit the assigned code: a code you self-derive with `codeFromHostname` is a *different* value and will silently never be credited, even though the transactions look correctly tagged on-chain. Inside any program, hardcode the assigned code; don't derive at runtime.
 
 ```ts
 import { toDataSuffix } from '@celo/attribution-tags'
@@ -69,6 +71,8 @@ await wallet.sendTransaction({ to, value, data: tag })
 Any string matching `[a-z0-9_]` (1–32 chars) is a valid code on the wire. Custom codes tag your transactions just as well; getting them recognized on the attribution dashboard is a registry-layer step — reach out via the contact at the bottom if you want your custom code credited.
 
 For local development before you have a real code, hardcode `celo_test1234` so you can iterate.
+
+After your first tagged transaction, close the loop: decode it with `verifyTx` and confirm the on-chain code equals the code you were assigned. This one check catches the self-derived-code mistake.
 
 ## If you're calling a contract method
 

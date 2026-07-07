@@ -165,6 +165,8 @@ If you put `["minipay", yourCode]` in your app's `toDataSuffix` call, your app i
 
 The combined on-chain shape `minipay,celo_xxxxxxxx` is what eventually appears once MiniPay's wallet prepends its own claim. Your responsibility ends at your own code.
 
+**The same rule extends to payment infrastructure.** If a facilitator submits transactions on your app's behalf (e.g. x402 settlement), the facilitator — not your app — tags those transactions, using the SDK's role-based Schema 2 emitter (`toRoleDataSuffix({ app, wallet, service })`): your app is credited in the `app` role, the facilitator identifies itself in the `wallet` role. Your app never needs to call `toRoleDataSuffix` itself; see the [SDK README](sdk/README.md#role-based-tags-schema-2--for-facilitators-and-payment-infrastructure) if you operate that kind of infrastructure.
+
 ## Verifying it worked
 
 Once you've sent a tagged transaction, confirm the suffix is on-chain:

@@ -66,9 +66,39 @@ fromDataSuffix("0x63656c6f040080218021802180218021802180218021");
 // → { codes: ["celo"], schemaId: 0 }
 ```
 
+### Role-based tags (Schema 2) — for facilitators and payment infrastructure
+
+ERC-8021 Schema 2 encodes *who played which role* in producing a transaction, instead of a flat code list. It's the shape used by payment facilitators (e.g. x402 settlement services) that submit transactions on behalf of an app and want to attribute the app, the facilitator, and optionally the paying client separately:
+
+```ts
+import { toRoleDataSuffix } from "@celo/attribution-tags";
+
+const suffix = toRoleDataSuffix({
+  app: "celo_b7k3p9da",   // the app / resource server
+  wallet: "celo_facil",   // the wallet / facilitator submitting the tx
+  service: "celo_agent",  // optional: the paying client
+});
+// append to settlement calldata: concat([callData, suffix])
+```
+
+`fromDataSuffix` / `verifyTx` decode Schema 2 automatically:
+
+```ts
+fromDataSuffix(suffix);
+// → {
+//     codes: ["celo_b7k3p9da", "celo_facil", "celo_agent"],
+//     schemaId: 2,
+//     app: "celo_b7k3p9da",
+//     wallet: "celo_facil",
+//     service: ["celo_agent"],
+//   }
+```
+
+Most apps don't need this: if you're tagging your own transactions, use `toDataSuffix` (Schema 0). Schema 2 is for infrastructure that submits transactions *for* others.
+
 ## Wire format
 
-ERC-8021 Schema 0. The suffix layout, reading left-to-right at the end of calldata:
+**Schema 0** (default — `toDataSuffix`). The suffix layout, reading left-to-right at the end of calldata:
 
 ```
 [code:N][length:1][schema:1][marker:16]
@@ -77,11 +107,20 @@ ERC-8021 Schema 0. The suffix layout, reading left-to-right at the end of callda
 
 Multi-code is encoded as a comma-delimited string in the code field; the SDK splits on decode.
 
+**Schema 2** (role-based — `toRoleDataSuffix`):
+
+```
+[CBOR map {a,w,s}][length:2][schema:1][marker:16]
+                               0x02      0x80218021…×8
+```
+
+The CBOR map uses ERC-8021's canonical short keys: `a` = app code, `w` = wallet code, `s` = service codes (array). Encoding is delegated to `ox/erc8021`, so it is wire-compatible with other Schema 2 implementations.
+
 The marker constant is exported as `ERC_8021_MARKER`.
 
 ## Validation
 
-`toDataSuffix` rejects codes that:
+`toDataSuffix` and `toRoleDataSuffix` reject codes that:
 
 - are empty or longer than 32 bytes
 - contain anything outside `[a-z0-9_]` (no uppercase, no spaces, no commas)
@@ -92,16 +131,25 @@ This is stricter than ERC-8021 itself but matches the format Celo distributes (`
 ## API
 
 ```ts
-toDataSuffix(code: string | readonly string[]): Hex
-fromDataSuffix(data: Hex): { codes: string[]; schemaId: number } | null
-verifyTx({ client, hash }): Promise<{ codes: string[]; schemaId: number } | null>
+toDataSuffix(code: string | readonly string[]): Hex          // Schema 0
+toRoleDataSuffix({ app?, wallet?, service? }): Hex            // Schema 2
+fromDataSuffix(data: Hex): DecodedSuffix | null
+verifyTx({ client, hash }): Promise<DecodedSuffix | null>
 codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
 
-type AttributionTagSuffix = Hex  // alias for the toDataSuffix return type
+interface DecodedSuffix {
+  codes: string[];      // every code found, regardless of schema
+  schemaId: number;     // 0 or 2
+  app?: string;         // Schema 2 only
+  wallet?: string;      // Schema 2 only
+  service?: string[];   // Schema 2 only
+}
+
+type AttributionTagSuffix = Hex  // alias for the suffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
 
-`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 tag: no marker, a reserved schema ID (≠ 0, e.g. Schema 1 custom-registry tags), or an empty code field.
+`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 or Schema 2 tag: no marker, a Schema 1 (custom-registry) tag, or a tag carrying no codes at all.
 
 `verifyTx` never throws — RPC errors return `null`.
 

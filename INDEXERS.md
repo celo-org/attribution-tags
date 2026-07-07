@@ -6,11 +6,16 @@ If you're shipping an app and want to *produce* tagged transactions instead, see
 
 ## What you're parsing
 
-Tagged Celo transactions follow [ERC-8021](https://oxlib.sh/ercs/erc8021/Attribution) Schema 0. Every tagged tx has an attribution suffix appended to the end of `tx.input`:
+Tagged Celo transactions follow [ERC-8021](https://oxlib.sh/ercs/erc8021/Attribution). App-emitted tags use **Schema 0**; facilitator-emitted tags (e.g. x402 settlement services) use **Schema 2**. Every tagged tx has an attribution suffix appended to the end of `tx.input`:
 
 ```
+Schema 0 (apps):
 [...your normal calldata...] [code:N] [length:1] [schema:1] [marker:16]
                                                     0x00     0x80218021…×8
+
+Schema 2 (facilitators):
+[...your normal calldata...] [CBOR map {a,w,s}] [length:2] [schema:1] [marker:16]
+                                                              0x02     0x80218021…×8
 ```
 
 The suffix is **trailing metadata**: the EVM ignored it when executing the tx, but it's preserved verbatim in the calldata you read back from the chain. To parse a tagged tx, you read the tail of `tx.input` and decode it — the suffix is at least 19 bytes (1-byte code + length + schema + 16-byte marker) and grows with the code field.
@@ -42,13 +47,17 @@ Read backwards from the end of `tx.input`:
 | Read position | Field | Notes |
 |---|---|---|
 | Last 16 bytes | **Marker** | Must equal `0x80218021802180218021802180218021`. If not, tx is not tagged — discard. |
-| `[end - 17]` (1 byte) | **Schema ID** | `0x00` for v1. Other values reserved; treat the tx as untagged (the SDK's `fromDataSuffix` returns `null` for them). |
-| `[end - 18]` (1 byte) | **Length `L`** | 1–255. Says how long the code field is. Note this bounds the whole comma-joined *field* — an individual code is at most 32 bytes, but a multi-code field can legally exceed 32. |
-| `[end - 18 - L]` … `[end - 19]` (L bytes) | **Code field** | ASCII string. Multi-code is comma-delimited inside this string. |
+| `[end - 17]` (1 byte) | **Schema ID** | `0x00` (flat code list) or `0x02` (role-based CBOR). Other values reserved; treat the tx as untagged (the SDK's `fromDataSuffix` returns `null` for them). |
+| Schema 0: `[end - 18]` (1 byte) | **Length `L`** | 1–255. Says how long the code field is. Note this bounds the whole comma-joined *field* — an individual code is at most 32 bytes, but a multi-code field can legally exceed 32. |
+| Schema 0: `[end - 18 - L]` … `[end - 19]` (L bytes) | **Code field** | ASCII string. Multi-code is comma-delimited inside this string. |
+| Schema 2: `[end - 19 … end - 18]` (2 bytes) | **Length `L`** | Big-endian length of the CBOR payload. |
+| Schema 2: `[end - 19 - L]` … `[end - 20]` (L bytes) | **CBOR map** | Keys: `a` = app code (string), `w` = wallet/facilitator code (string), `s` = service codes (array of strings). All optional. |
 
-So total suffix length = `L + 18` bytes (= `L + 1 [length] + 1 [schema] + 16 [marker]`).
+Schema 0 total suffix length = `L + 18` bytes; Schema 2 = `L + 19` bytes (2-byte length field).
 
-The code field, decoded as ASCII, is either a single code (`celo_b057492a5aa5`) or a comma-delimited list (`minipay,celo_b057492a5aa5`). Split on `,` to get the list; we reject commas inside individual codes at the SDK encode layer, so the split is unambiguous.
+For Schema 0, the code field decoded as ASCII is either a single code (`celo_b057492a5aa5`) or a comma-delimited list (`minipay,celo_b057492a5aa5`). Split on `,` to get the list; we reject commas inside individual codes at the SDK encode layer, so the split is unambiguous.
+
+For Schema 2, decode the CBOR map with any CBOR library and read the `a`/`w`/`s` keys. You'll see this shape on transactions submitted by payment facilitators (x402 settlements): `a` credits the app whose endpoint was paid, `w` identifies the facilitator, `s` optionally identifies the paying client.
 
 ## Pseudocode
 
@@ -61,16 +70,27 @@ def parse_suffix(input_bytes):
     if input_bytes[-16:] != MARKER:
         return None
     schema = input_bytes[-17]
-    if schema != 0:
-        return None  # reserved schema — treat as untagged
-    code_len = input_bytes[-18]
-    if code_len == 0:
-        return None
-    if len(input_bytes) < 18 + code_len:
-        return None  # claimed code field longer than the calldata — corrupt
-    code_field = input_bytes[-18 - code_len : -18].decode("ascii")
-    codes = code_field.split(",")
-    return {"codes": codes, "schema_id": schema}
+    if schema == 0:
+        code_len = input_bytes[-18]
+        if code_len == 0:
+            return None
+        if len(input_bytes) < 18 + code_len:
+            return None  # claimed code field longer than the calldata — corrupt
+        code_field = input_bytes[-18 - code_len : -18].decode("ascii")
+        codes = code_field.split(",")
+        return {"codes": codes, "schema_id": schema}
+    if schema == 2:
+        cbor_len = int.from_bytes(input_bytes[-19:-17], "big")
+        if cbor_len == 0 or len(input_bytes) < 19 + cbor_len:
+            return None
+        tag = cbor2.loads(input_bytes[-19 - cbor_len : -19])
+        # keys: a = app code, w = wallet/facilitator code, s = [service codes]
+        codes = [c for c in [tag.get("a"), tag.get("w")] if c] + list(tag.get("s") or [])
+        if not codes:
+            return None
+        return {"codes": codes, "schema_id": schema,
+                "app": tag.get("a"), "wallet": tag.get("w"), "service": tag.get("s")}
+    return None  # reserved schema — treat as untagged
 ```
 
 For a TS-side equivalent, you can use this repo's SDK directly:
@@ -82,7 +102,7 @@ fromDataSuffix(rawCalldata)
 // → { codes: ["celo_xxxxxxxx"], schemaId: 0 } or null
 ```
 
-`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 tag: no marker, a reserved schema ID (≠ 0), or an empty code field.
+`fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 or Schema 2 tag: no marker, a Schema 1 (custom-registry) tag, or a tag carrying no codes. Schema 2 results additionally carry `app` / `wallet` / `service` role fields.
 
 ## Example txs (verified live on Celo Mainnet)
 
@@ -152,8 +172,11 @@ function_selector           -- first 4 bytes of the original calldata (before th
 success                     -- from the receipt
 builder_code                -- the decoded code, e.g. "celo_b057492a5aa5"
 builder_name                -- joined from the codes lookup table (nullable)
-schema_id                   -- 0 for v1
+schema_id                   -- 0 (app-emitted) or 2 (facilitator-emitted)
 multi_code_full             -- the raw code field, e.g. "minipay,celo_b057492a5aa5"
+app_code                    -- Schema 2 only: the `a` role (nullable)
+wallet_code                 -- Schema 2 only: the `w` role (nullable)
+service_codes               -- Schema 2 only: the `s` role, array (nullable)
 ```
 
 > The canonical term is now **attribution code** (`celo_xxxxxxxx`). The column

@@ -59,9 +59,74 @@ export function toDataSuffix(
   return Attribution.toDataSuffix({ codes });
 }
 
+// ERC-8021 Schema 2: role-based attribution (CBOR map). Used by x402
+// facilitators to tag settlement transactions with the app (resource
+// server), wallet (facilitator), and service (client) that produced a
+// payment. Wire-compatible with other Schema 2 implementations — the
+// CBOR keys are the spec's canonical short keys (a / w / s).
+export interface RoleCodes {
+  /** Application code — the app or resource server serving the request. */
+  app?: string;
+  /** Wallet code — the wallet or facilitator submitting the transaction. */
+  wallet?: string;
+  /** Service code(s) — additional providers (e.g. the paying client). */
+  service?: string | readonly string[];
+}
+
+function validateCode(code: string, role: string): string {
+  if (typeof code !== "string" || !CODE_RE.test(code)) {
+    throw new Error(
+      `toRoleDataSuffix: invalid ${role} code ${JSON.stringify(code)} — codes must match /^[a-z0-9_]{1,32}$/ (no spaces, no commas, no uppercase)`,
+    );
+  }
+  return code;
+}
+
+export function toRoleDataSuffix(roles: RoleCodes): AttributionTagSuffix {
+  const service =
+    roles.service === undefined
+      ? undefined
+      : typeof roles.service === "string"
+        ? [roles.service]
+        : [...roles.service];
+
+  if (
+    roles.app === undefined &&
+    roles.wallet === undefined &&
+    (service === undefined || service.length === 0)
+  ) {
+    throw new Error(
+      "toRoleDataSuffix: at least one of app, wallet, or service is required",
+    );
+  }
+
+  // Build with only the keys that are present — ox's getSchemaId uses
+  // `key in attribution` checks, so `{ appCode: undefined }` would still
+  // select Schema 2 but is sloppier to reason about downstream.
+  const attribution: Parameters<typeof Attribution.toDataSuffix>[0] = {
+    id: 2,
+    ...(roles.app !== undefined && { appCode: validateCode(roles.app, "app") }),
+    ...(roles.wallet !== undefined && {
+      walletCode: validateCode(roles.wallet, "wallet"),
+    }),
+    ...(service !== undefined &&
+      service.length > 0 && {
+        serviceCodes: service.map((c) => validateCode(c, "service")),
+      }),
+  };
+  return Attribution.toDataSuffix(attribution);
+}
+
 export interface DecodedSuffix {
+  /** Every code found in the suffix, regardless of schema. */
   codes: string[];
   schemaId: number;
+  /** Schema 2 only: application (resource server) code. */
+  app?: string;
+  /** Schema 2 only: wallet / facilitator code. */
+  wallet?: string;
+  /** Schema 2 only: service (client) codes. */
+  service?: string[];
 }
 
 export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
@@ -73,16 +138,41 @@ export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
   }
   if (!attr) return null;
 
-  // Celo attribution is Schema 0 only. Other schemas (e.g. Schema 1's
-  // custom code registry) carry codes that are NOT canonical Celo codes —
-  // treat them as untagged rather than let them masquerade as ours.
   const schemaId = Attribution.getSchemaId(attr);
-  if (schemaId !== 0) return null;
 
-  const codes = [...attr.codes];
-  if (codes.length === 0) return null;
+  // Schema 0: the canonical flat code list (Celo's default tag shape).
+  if (schemaId === 0 && "codes" in attr && attr.codes) {
+    const codes = [...attr.codes];
+    if (codes.length === 0) return null;
+    return { codes, schemaId };
+  }
 
-  return { codes, schemaId };
+  // Schema 2: role-based CBOR attribution (x402 facilitators et al.).
+  if (schemaId === 2) {
+    const s2 = attr as {
+      appCode?: string;
+      walletCode?: string;
+      serviceCodes?: readonly string[];
+    };
+    const service = s2.serviceCodes ? [...s2.serviceCodes] : undefined;
+    const codes = [
+      ...(s2.appCode ? [s2.appCode] : []),
+      ...(s2.walletCode ? [s2.walletCode] : []),
+      ...(service ?? []),
+    ];
+    if (codes.length === 0) return null;
+    return {
+      codes,
+      schemaId,
+      ...(s2.appCode !== undefined && { app: s2.appCode }),
+      ...(s2.walletCode !== undefined && { wallet: s2.walletCode }),
+      ...(service !== undefined && { service }),
+    };
+  }
+
+  // Schema 1 (custom code registry) carries codes that are NOT canonical
+  // Celo codes — treat as untagged rather than let them masquerade as ours.
+  return null;
 }
 
 export interface VerifyTxArgs {

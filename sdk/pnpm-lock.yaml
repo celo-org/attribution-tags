@@ -12,8 +12,8 @@ importers:
   .:
     dependencies:
       ox:
-        specifier: ^0.10.0
-        version: 0.10.6(typescript@5.9.3)
+        specifier: ^0.14.8
+        version: 0.14.20(typescript@5.9.3)
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -690,14 +690,6 @@ packages:
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
     engines: {node: '>=0.10.0'}
-
-  ox@0.10.6:
-    resolution: {integrity: sha512-J3QUxlwSM0uCL7sm5OsprlEeU6vNdKUyyukh1nUT3Jrog4l2FMJNIZPlffjPXCaS/hJYjdNe3XbEN8jCq1mnEQ==}
-    peerDependencies:
-      typescript: '>=5.4.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   ox@0.14.20:
     resolution: {integrity: sha512-rby38C3nDn8eQkf29Zgw4hkCZJ64Qqi0zRPWL8ENUQ7JVuoITqrVtwWQgM/He19SCMUEc7hS/Sjw0jIOSLJhOw==}
@@ -1411,21 +1403,6 @@ snapshots:
 
   object-assign@4.1.1: {}
 
-  ox@0.10.6(typescript@5.9.3):
-    dependencies:
-      '@adraffy/ens-normalize': 1.11.1
-      '@noble/ciphers': 1.3.0
-      '@noble/curves': 1.9.1
-      '@noble/hashes': 1.8.0
-      '@scure/bip32': 1.7.0
-      '@scure/bip39': 1.6.0
-      abitype: 1.2.4(typescript@5.9.3)
-      eventemitter3: 5.0.1
-    optionalDependencies:
-      typescript: 5.9.3
-    transitivePeerDependencies:
-      - zod
-
   ox@0.14.20(typescript@5.9.3):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
@@ -1434,7 +1411,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)
+      abitype: 1.2.4(typescript@5.9.3)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3

@@ -66,6 +66,31 @@ describe("toRoleDataSuffix / fromDataSuffix round-trip", () => {
     });
   });
 
+  it("round-trips a service-only tag (no app or wallet code)", () => {
+    // The service role is the one ox only learned about in 0.14.12 — on an
+    // older ox this encodes as an empty Schema 0 suffix instead.
+    const suffix = toRoleDataSuffix({ service: "celo_agent" });
+    expect(suffix.endsWith(`02${ERC_8021_MARKER.slice(2)}`)).toBe(true);
+    expect(suffix).toBe(Attribution.toDataSuffix({ serviceCodes: ["celo_agent"] }));
+    expect(fromDataSuffix(suffix)).toEqual({
+      codes: ["celo_agent"],
+      schemaId: 2,
+      service: ["celo_agent"],
+    });
+  });
+
+  it("round-trips a wallet + service tag (no app code)", () => {
+    const parsed = fromDataSuffix(
+      toRoleDataSuffix({ wallet: "celo_facil", service: ["celo_agent"] }),
+    );
+    expect(parsed).toEqual({
+      codes: ["celo_facil", "celo_agent"],
+      schemaId: 2,
+      wallet: "celo_facil",
+      service: ["celo_agent"],
+    });
+  });
+
   it("round-trips multiple service codes", () => {
     const parsed = fromDataSuffix(
       toRoleDataSuffix({ app: "myapp", service: ["svc_one", "svc_two"] }),

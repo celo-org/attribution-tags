@@ -100,21 +100,55 @@ export function toRoleDataSuffix(roles: RoleCodes): AttributionTagSuffix {
     );
   }
 
+  const appCode =
+    roles.app === undefined ? undefined : validateCode(roles.app, "app");
+  const walletCode =
+    roles.wallet === undefined
+      ? undefined
+      : validateCode(roles.wallet, "wallet");
+  const serviceCodes =
+    service === undefined || service.length === 0
+      ? undefined
+      : service.map((c) => validateCode(c, "service"));
+
   // Build with only the keys that are present — ox's getSchemaId uses
   // `key in attribution` checks, so `{ appCode: undefined }` would still
   // select Schema 2 but is sloppier to reason about downstream.
   const attribution: Parameters<typeof Attribution.toDataSuffix>[0] = {
     id: 2,
-    ...(roles.app !== undefined && { appCode: validateCode(roles.app, "app") }),
-    ...(roles.wallet !== undefined && {
-      walletCode: validateCode(roles.wallet, "wallet"),
-    }),
-    ...(service !== undefined &&
-      service.length > 0 && {
-        serviceCodes: service.map((c) => validateCode(c, "service")),
-      }),
+    ...(appCode !== undefined && { appCode }),
+    ...(walletCode !== undefined && { walletCode }),
+    ...(serviceCodes !== undefined && { serviceCodes }),
   };
-  return Attribution.toDataSuffix(attribution);
+  const suffix = Attribution.toDataSuffix(attribution);
+
+  // ox below 0.14.12 has no notion of `serviceCodes`: its getSchemaId
+  // ignores the key (and our explicit `id`), so a service-only tag falls
+  // through to the Schema 0 encoder and comes out empty, and an app+service
+  // tag silently drops the `s` codes. Decoding what we just encoded turns
+  // both silent corruptions into a loud failure — cheap, since encoding
+  // happens once per transaction.
+  const decoded = fromDataSuffix(suffix);
+  const roundTrips =
+    decoded !== null &&
+    decoded.schemaId === 2 &&
+    decoded.app === appCode &&
+    decoded.wallet === walletCode &&
+    sameCodes(decoded.service, serviceCodes);
+  if (!roundTrips) {
+    throw new Error(
+      "toRoleDataSuffix: the encoded suffix did not round-trip — the resolved `ox` version does not support ERC-8021 Schema 2 service codes. @celo/attribution-tags requires ox >= 0.14.12.",
+    );
+  }
+  return suffix;
+}
+
+function sameCodes(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((code, i) => code === b[i]);
 }
 
 export interface DecodedSuffix {

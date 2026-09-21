@@ -136,6 +136,7 @@ toRoleDataSuffix({ app?, wallet?, service? }): Hex            // Schema 2
 fromDataSuffix(data: Hex): DecodedSuffix | null
 verifyTx({ client, hash }): Promise<DecodedSuffix | null>
 codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
+codeFromRepo(repo: string): string          // → "celo_" + 12 hex chars ("owner/repo" or github.com URL)
 
 interface DecodedSuffix {
   codes: string[];      // every code found, regardless of schema
@@ -155,6 +156,8 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time.
 
+`codeFromRepo` reproduces the Celo Builders platform's derivation of a project's code from its GitHub repository, so a builder can assert that the code in their config matches their own repository. Algorithm: trim → lowercase → SHA-256 of the `owner/repo` slug → first 6 bytes hex (12 chars) → `celo_` prefix. A full `https://github.com/owner/repo` URL (with or without `.git` / trailing path) is reduced to the slug first. Anything that isn't `owner/repo` throws.
+
 ### Pinned hostname → code vectors
 
 Independently verified against `shasum -a 256` and against [`tests/hostname.test.ts`](tests/hostname.test.ts). If a reimplementation doesn't produce these values, the algorithm has drifted.
@@ -168,6 +171,18 @@ Independently verified against `shasum -a 256` and against [`tests/hostname.test
 | `mondeto.vercel.app` | `celo_04168799c492` |
 
 Subdomains stay distinct by design (so `*.vercel.app` apps don't all collide into one code). Preview / staging hostnames therefore produce their own codes; aggregate environments at the dashboard layer, not the SDK layer.
+
+### Pinned repository → code vectors
+
+Verified against `shasum -a 256` and against [`tests/repo.test.ts`](tests/repo.test.ts), which also compares `codeFromRepo` with a verbatim copy of the platform's derivation on every run.
+
+| Repository | Code |
+|---|---|
+| `gigahierz/trading-bot-updown` | `celo_7b3c251337be` |
+| `icmelvin/myceloproject` | `celo_4d19a013cc70` |
+| `icmelvin/2nd-celo-hackathon` | `celo_3712ca0f1cdc` |
+
+Case and surrounding whitespace don't matter (`icmelvin/MyCeloProject` gives the same code); the repository name does — a fork or a renamed repo is a different code.
 
 ## License
 

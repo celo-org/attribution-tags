@@ -10,11 +10,12 @@ If you're writing a parser, indexer, or Dune model for tagged transactions inste
 
 ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-`@celo/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you four exports:
+`@celo/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you five exports:
 
 ```ts
 toDataSuffix(code | [codes])               // → encoded suffix (Hex)
 codeFromHostname(hostname)                 // → "celo_" + 12 hex chars, derived from a hostname
+codeFromRepo("owner/repo")                 // → "celo_" + 12 hex chars, derived from a GitHub repo
 fromDataSuffix(data)                       // → { codes, schemaId } | null
 verifyTx({ client, hash })                 // → { codes, schemaId } | null
 ```
@@ -77,6 +78,25 @@ await wallet.sendTransaction({ to, value, data: tag })
 ```
 
 Any string matching `[a-z0-9_]` (1–32 chars) is a valid code on the wire. Custom codes tag your transactions just as well; getting them recognized on the attribution dashboard is a registry-layer step — reach out via the contact at the bottom if you want your custom code credited.
+
+**If your code came from the Celo Builders platform, check it against your repository.** The platform derives the code from your GitHub `owner/repo` slug, and `codeFromRepo` reproduces that derivation exactly. A copied or stale code (from a previous registration, a fork, or a renamed repo) tags transactions that credit nobody, and nothing on-chain tells you. Assert once at startup:
+
+```ts
+import { codeFromRepo } from '@celo/attribution-tags'
+
+const CODE = 'celo_7b3c251337be'   // what the platform gave you
+
+if (codeFromRepo('gigahierz/trading-bot-updown') !== CODE) {
+  throw new Error('attribution code does not match this repository')
+}
+```
+
+`codeFromRepo` trims and lowercases the slug, and also accepts a full `https://github.com/owner/repo` URL. You can check it offline:
+
+```bash
+printf "%s" "gigahierz/trading-bot-updown" | shasum -a 256 | cut -c1-12
+# → 7b3c251337be   (matches codeFromRepo("gigahierz/trading-bot-updown") = "celo_7b3c251337be")
+```
 
 For local development before you have a real code, hardcode `celo_test1234` so you can iterate.
 

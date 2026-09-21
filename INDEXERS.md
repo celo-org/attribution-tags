@@ -210,6 +210,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
+- [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository
 
 Install: `npm install @celo/attribution-tags viem`
 

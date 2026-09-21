@@ -20,13 +20,31 @@ pnpm add @celo/attribution-tags viem
 yarn add @celo/attribution-tags viem
 ```
 
-`viem` is an optional peer dep, only needed if you call `verifyTx`.
+`viem` is an optional peer dep, only needed if you call `verifyTx` or use `withAttribution`.
 
 > **Local testing without publish:** `cd sdk && npm pack` produces a `.tgz` you can install with `npm install /absolute/path/to/celo-attribution-tags-X.Y.Z.tgz` (or `pnpm add /path/...tgz`). The path is absolute and machine-specific, so this is for local-only workflows; for cross-machine sharing, install from npm.
 
 ## Usage
 
-### Tag a transaction
+### Tag every transaction (recommended)
+
+Extend the wallet client once; every `sendTransaction`, `writeContract` (and `*Sync`) call it makes carries the suffix, including plain value transfers with no `data`:
+
+```ts
+import { withAttribution } from "@celo/attribution-tags";
+import { createWalletClient, http } from "viem";
+import { celo } from "viem/chains";
+
+const wallet = createWalletClient({ chain: celo, transport: http() })
+  .extend(withAttribution("celo_b7k3p9da"));
+
+await wallet.sendTransaction({ to: "0x...", value: 0n });
+await wallet.writeContract({ address, abi, functionName: "transfer", args });
+```
+
+If the data already ends with a Schema 0 tag the codes are merged into one suffix (no double tagging); a Schema 2 tag is left untouched. A call-site `dataSuffix` is placed before the attribution tag. `sendCalls` (EIP-5792) is not wrapped — use viem ≥ 2.45's client-level `dataSuffix` option for that.
+
+### Tag a single transaction
 
 ```ts
 import { toDataSuffix } from "@celo/attribution-tags";
@@ -149,6 +167,7 @@ This is stricter than ERC-8021 itself but matches the format Celo distributes (`
 ```ts
 toDataSuffix(code: string | readonly string[]): Hex          // Schema 0
 toRoleDataSuffix({ app?, wallet?, service? }): Hex            // Schema 2
+withAttribution(code | codes): (client) => client   // viem wallet-client extension
 fromDataSuffix(data: Hex): DecodedSuffix | null
 verifyTx({ client, hash }): Promise<DecodedSuffix | null>
 verifyUserOps({ client, hash }): Promise<UserOpAttribution[] | null>   // ERC-4337 bundles
@@ -177,6 +196,8 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 ```
 
 `fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 or Schema 2 tag: no marker, a Schema 1 (custom-registry) tag, or a tag carrying no codes at all.
+
+`withAttribution(code)` returns a viem `extend` function. It validates the code once at construction (throws on an invalid code, before any transaction is sent) and wraps `sendTransaction`, `sendTransactionSync`, `writeContract` and `writeContractSync` when the client has them. The SDK still doesn't import viem: the extension is typed structurally, so your client keeps viem's own types.
 
 `verifyTx` never throws — RPC errors return `null`. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations.
 

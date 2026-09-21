@@ -57,6 +57,22 @@ const result = await verifyTx({ client, hash: "0x..." });
 // → { codes: ["celo_b7k3p9da"], schemaId: 0 } or null
 ```
 
+### Smart-account (ERC-4337) transactions
+
+When the user has a smart-contract wallet, the on-chain transaction is the bundler's `handleOps` call to the EntryPoint and the app's suffix sits inside the UserOperation's `callData`. `verifyTx` handles this automatically (EntryPoint v0.6 and v0.7): if the outer input carries no tag it decodes the bundle and returns the first tagged operation, with `sender` set to the smart account that produced it. To see every operation:
+
+```ts
+import { verifyUserOps, fromEntryPointCalldata } from "@celo/attribution-tags";
+
+await verifyUserOps({ client, hash });
+// → [{ sender: "0xad00…", attribution: { codes: ["celo_b7k3p9da"], schemaId: 0 } }, …]
+//   or null if the tx is not a handleOps bundle
+
+fromEntryPointCalldata(tx.input); // same, offline, from raw calldata
+```
+
+Credit `sender`, not the transaction's `from` — `from` is the bundler.
+
 ### Decode a suffix offline
 
 ```ts
@@ -135,6 +151,8 @@ toDataSuffix(code: string | readonly string[]): Hex          // Schema 0
 toRoleDataSuffix({ app?, wallet?, service? }): Hex            // Schema 2
 fromDataSuffix(data: Hex): DecodedSuffix | null
 verifyTx({ client, hash }): Promise<DecodedSuffix | null>
+verifyUserOps({ client, hash }): Promise<UserOpAttribution[] | null>   // ERC-4337 bundles
+fromEntryPointCalldata(data: Hex): UserOpAttribution[] | null          // offline variant
 codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
 
 interface DecodedSuffix {
@@ -143,7 +161,15 @@ interface DecodedSuffix {
   app?: string;         // Schema 2 only
   wallet?: string;      // Schema 2 only
   service?: string[];   // Schema 2 only
+  sender?: Address;     // ERC-4337 only: the smart account to credit
 }
+
+interface UserOpAttribution {
+  sender: Address;                    // UserOperation sender (smart account)
+  attribution: DecodedSuffix | null;  // null if that op is untagged
+}
+
+ENTRY_POINT_ADDRESSES: { v0_6: Address; v0_7: Address }  // canonical EntryPoints
 
 type AttributionTagSuffix = Hex  // alias for the suffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
@@ -151,7 +177,7 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `fromDataSuffix` accepts full calldata, not just the bare suffix — it parses from the end. It returns `null` for anything that isn't a clean Schema 0 or Schema 2 tag: no marker, a Schema 1 (custom-registry) tag, or a tag carrying no codes at all.
 
-`verifyTx` never throws — RPC errors return `null`.
+`verifyTx` never throws — RPC errors return `null`. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations.
 
 `codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time.
 

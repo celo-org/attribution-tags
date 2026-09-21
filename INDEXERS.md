@@ -117,6 +117,20 @@ Two real transactions you can plug into your parser to test it. Both have status
 
 **Parser compatibility note:** early Mainnet example txs from the pre-0.2.0 dev period carry **8-char codes** (e.g. `celo_49960de5` from `codeFromHostname("localhost")` under the old derivation). Both are valid ERC-8021 suffixes — the parser doesn't care about the length of the code field. Indexers should accept any code *field* length the length byte can express (1–255 bytes; individual codes are at most 32, but a comma-joined multi-code field can exceed 32), not just the current shapes.
 
+## ERC-4337 bundles (smart-account wallets)
+
+The tail-of-input assumption misses every transaction sent from a smart-contract wallet. The bundler calls the EntryPoint's `handleOps`, and the app's tagged calldata is inside each UserOperation's `callData` (usually as the `bytes` argument of the account's `execute(address,uint256,bytes)`, zero-padded to 32 bytes), so the outer input never ends with the marker.
+
+A real example: [`0x21a0cb…5924ea16`](https://celoscan.io/tx/0x21a0cb12d27e08a3b403edbfb6fa46b5392612ecdb91cabf0e87c40e5924ea16) — `to` is EntryPoint v0.6, the outer `fromDataSuffix` is `null`, and the single UserOperation carries `celo_5d5a7df8d3aa`.
+
+What to do:
+
+- Detect by selector, not only by address: v0.6 `handleOps(UserOperation[],address)` = `0x1fad948c` (canonical EntryPoint `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`), v0.7 `handleOps(PackedUserOperation[],address)` = `0x765e827f` (`0x0000000071727De22E5E9d8BAf0edAc6f37da032`).
+- ABI-decode the bundle, then for each op find the marker inside `callData` and decode the slice ending with it (the suffix is followed by ABI padding, so parse-from-end fails on the raw `callData`).
+- Credit the op's `sender` — the smart account — not the outer `from`, which is the bundler. Emit one row per operation, not per transaction.
+
+The SDK does all of this: `fromEntryPointCalldata(input)` (offline) and `verifyUserOps({ client, hash })` return `[{ sender, attribution }]` per operation, and `verifyTx` falls back to the first tagged operation with `sender` set.
+
 ## The hostname-derivation algorithm
 
 For MiniPay-style auto-derived codes, each app's code is derived deterministically from its hostname:
@@ -208,7 +222,8 @@ Your parser should split on `,` regardless of which shape arrives. Each comma-se
 Even if you're parsing in SQL, these can be useful for spot-checks and validation:
 
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
-- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call
+- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle decoding)
+- [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 
 Install: `npm install @celo/attribution-tags viem`

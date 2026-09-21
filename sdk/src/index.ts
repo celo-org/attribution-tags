@@ -1,5 +1,5 @@
 import { Attribution } from "ox/erc8021";
-import { Bytes, Hash as OxHash } from "ox";
+import { AbiFunction, Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
 
 // Structural stand-ins for viem's Hash / PublicClient. viem is an
@@ -10,7 +10,7 @@ export type TxHash = `0x${string}`;
 export interface TxClient {
   getTransaction(args: {
     hash: TxHash;
-  }): Promise<{ input?: string } | null | undefined>;
+  }): Promise<{ input?: string; to?: string | null } | null | undefined>;
 }
 
 export const ERC_8021_MARKER =
@@ -161,6 +161,13 @@ export interface DecodedSuffix {
   wallet?: string;
   /** Schema 2 only: service (client) codes. */
   service?: string[];
+  /**
+   * Set only when the suffix was decoded from an ERC-4337 UserOperation
+   * inside an EntryPoint `handleOps` bundle: the smart account that
+   * produced the operation. Credit this address, not the outer tx `from`
+   * (which is the bundler).
+   */
+  sender?: `0x${string}`;
 }
 
 export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
@@ -220,7 +227,126 @@ export async function verifyTx(
   try {
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
-    return fromDataSuffix(tx.input as Hex.Hex);
+    const input = tx.input as Hex.Hex;
+    const outer = fromDataSuffix(input);
+    if (outer) return outer;
+    // ERC-4337: the builder's suffix sits at the end of each UserOperation's
+    // callData, which the bundler wraps inside handleOps — so it is in the
+    // middle of the outer input, not at the end. Fall back to the first
+    // tagged operation in the bundle.
+    const ops = fromEntryPointCalldata(input);
+    if (!ops) return null;
+    for (const op of ops) {
+      if (op.attribution) return { ...op.attribution, sender: op.sender };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ERC-4337 (smart-account) bundles
+//
+// A smart-account wallet puts the app's calldata (suffix included) into a
+// UserOperation and a bundler submits it to the EntryPoint via handleOps.
+// The outer tx therefore never ends with the marker. Detection is keyed on
+// the handleOps selector rather than the EntryPoint address so that forks
+// and custom EntryPoint deployments decode too; the canonical addresses
+// are exported for documentation and indexer allow-lists.
+// ---------------------------------------------------------------------------
+
+export const ENTRY_POINT_ADDRESSES = {
+  /** EntryPoint v0.6 — handleOps(UserOperation[],address), selector 0x1fad948c */
+  v0_6: "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+  /** EntryPoint v0.7 — handleOps(PackedUserOperation[],address), selector 0x765e827f */
+  v0_7: "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+} as const;
+
+const HANDLE_OPS_V06 = AbiFunction.from(
+  "function handleOps((address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit, uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, bytes paymasterAndData, bytes signature)[] ops, address beneficiary)",
+);
+
+const HANDLE_OPS_V07 = AbiFunction.from(
+  "function handleOps((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address beneficiary)",
+);
+
+const HANDLE_OPS_BY_SELECTOR: Record<string, typeof HANDLE_OPS_V06 | typeof HANDLE_OPS_V07> = {
+  [AbiFunction.getSelector(HANDLE_OPS_V06)]: HANDLE_OPS_V06,
+  [AbiFunction.getSelector(HANDLE_OPS_V07)]: HANDLE_OPS_V07,
+};
+
+// A UserOperation's callData is the smart account's own entry point —
+// typically execute(address,uint256,bytes) or executeBatch(...) — and the
+// app's tagged calldata is the `bytes` argument inside it. ABI encoding
+// pads that argument to a 32-byte boundary, so the marker is followed by
+// up to 31 zero bytes and Attribution.fromData (which reads from the end)
+// sees nothing. Locate the marker and decode the slice that ends with it.
+const MARKER_HEX = ERC_8021_MARKER.slice(2).toLowerCase();
+
+function fromEmbeddedSuffix(data: Hex.Hex): DecodedSuffix | null {
+  const direct = fromDataSuffix(data);
+  if (direct) return direct;
+  const hex = data.toLowerCase();
+  let at = hex.indexOf(MARKER_HEX, 2);
+  while (at !== -1) {
+    const end = at + MARKER_HEX.length;
+    // Only consider byte-aligned occurrences.
+    if (end % 2 === 0) {
+      const decoded = fromDataSuffix(hex.slice(0, end) as Hex.Hex);
+      if (decoded) return decoded;
+    }
+    at = hex.indexOf(MARKER_HEX, at + 1);
+  }
+  return null;
+}
+
+export interface UserOpAttribution {
+  /** The smart account that produced the operation — the address to credit. */
+  sender: `0x${string}`;
+  /** Decoded suffix from the operation's callData, or null if untagged. */
+  attribution: DecodedSuffix | null;
+}
+
+/**
+ * Decode an EntryPoint `handleOps` calldata (v0.6 or v0.7) into one entry
+ * per UserOperation. Returns null if the input is not a handleOps call or
+ * cannot be decoded. Pure — no RPC.
+ */
+export function fromEntryPointCalldata(
+  input: Hex.Hex,
+): UserOpAttribution[] | null {
+  if (typeof input !== "string" || input.length < 10) return null;
+  const fn = HANDLE_OPS_BY_SELECTOR[input.slice(0, 10).toLowerCase()];
+  if (!fn) return null;
+  try {
+    const decoded = AbiFunction.decodeData(fn, input);
+    if (!decoded) return null;
+    const [ops] = decoded as unknown as [
+      readonly { sender: `0x${string}`; callData: Hex.Hex }[],
+      string,
+    ];
+    return ops.map((op) => ({
+      sender: op.sender,
+      attribution: fromEmbeddedSuffix(op.callData),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a transaction and, if it is an EntryPoint `handleOps` bundle,
+ * decode the attribution of every UserOperation in it. Returns null for
+ * non-bundle transactions and on RPC errors — never throws.
+ */
+export async function verifyUserOps(
+  args: VerifyTxArgs,
+): Promise<UserOpAttribution[] | null> {
+  try {
+    const tx = await args.client.getTransaction({ hash: args.hash });
+    if (!tx?.input) return null;
+    return fromEntryPointCalldata(tx.input as Hex.Hex);
   } catch {
     return null;
   }

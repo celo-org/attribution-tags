@@ -182,7 +182,16 @@ const result = await verifyTx({ client, hash: '0x...' })
 console.log(result) // { codes: ["celo_b7k3p9da"], schemaId: 0 }
 ```
 
-`verifyTx` returns `null` (never throws) if the marker isn't there. If it returns `null` for a tx you expected to be tagged, your suffix didn't make it onto the wire — most likely you set `data: code` instead of `data: toDataSuffix(code)`, or your wallet client / bundler stripped trailing bytes.
+`verifyTx` returns `null` (never throws) if the marker isn't there. If it returns `null` for a tx you expected to be tagged, your suffix didn't make it onto the wire — most likely you set `data: code` instead of `data: toDataSuffix(code)`.
+
+**Smart-account (ERC-4337) wallets.** If your users have smart-contract wallets, the transaction you see on-chain is the bundler's call to the EntryPoint (`handleOps`), and your suffix sits inside the UserOperation's `callData` rather than at the end of the outer input. `verifyTx` decodes `handleOps` bundles (EntryPoint v0.6 and v0.7) automatically and adds a `sender` field — the smart account that produced the operation:
+
+```ts
+await verifyTx({ client, hash })
+// → { codes: ["celo_b7k3p9da"], schemaId: 0, sender: "0xad00…" }
+```
+
+`verifyUserOps({ client, hash })` returns one entry per operation in the bundle, so you can see which ops were tagged and by whom. Note that the outer `from` is the bundler, not your user — credit `sender`.
 
 For offline debugging without an RPC roundtrip:
 
@@ -198,7 +207,7 @@ You can also verify against a real tx via Celoscan: this [Mondeto example tx](ht
 ## Common gotchas
 
 - **Don't include the suffix in your contract's expected calldata.** It goes *after*. The contract sees only its real arguments.
-- **Some smart-account / bundler flows strip trailing bytes.** ERC-4337 bundlers and meta-tx relayers may rewrite the calldata, dropping the suffix. Test on-chain before declaring victory; if your relayer drops it, contact us.
+- **Smart-account transactions look untagged if you only read the end of the calldata.** With ERC-4337 wallets the bundler wraps your call in `handleOps`, so the suffix is inside the UserOperation's `callData`, not at the end of the outer transaction. That is not a bug in your integration — the suffix is on-chain and `verifyTx` / `verifyUserOps` decode it (see [Verifying it worked](#verifying-it-worked)). Relayers that genuinely re-encode calldata can still drop the suffix; if you see a bundle with no tag in any operation, test with an EOA to isolate the cause and contact us.
 - **Stick to `[a-z0-9_]` in your codes.** The SDK rejects uppercase, spaces, and commas at the encode step.
 - **The suffix doesn't survive contract execution.** The EVM only sees the function-selector + args part of calldata; the suffix is metadata for off-chain readers, not for your contract logic.
 

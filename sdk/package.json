@@ -32,7 +32,7 @@
     }
   },
   "dependencies": {
-    "ox": "^0.14.8"
+    "ox": "^0.14.12"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

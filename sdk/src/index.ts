@@ -448,7 +448,15 @@ function appendSuffixToData(data: unknown, suffix: Hex.Hex): Hex.Hex {
   // Schema 0 suffix layout: [codes][len:1][schema:1][marker:16]
   const existingBytes = existing.codes.join(",").length + 1 + 1 + MARKER_BYTES;
   const stripped = base.slice(0, base.length - existingBytes * 2) as Hex.Hex;
-  return (stripped + toDataSuffix(merged).slice(2)) as Hex.Hex;
+  try {
+    return (stripped + toDataSuffix(merged).slice(2)) as Hex.Hex;
+  } catch {
+    // The existing tag was written by another ERC-8021 emitter with codes
+    // outside Celo's stricter charset (e.g. uppercase). Never fail the
+    // transaction over attribution: append ours after theirs instead.
+    // Parsers read from the end, so our tag is the one they see.
+    return (base + suffix.slice(2)) as Hex.Hex;
+  }
 }
 
 /** viem accepts `dataSuffix` as a hex string or `{ value, required }`. */

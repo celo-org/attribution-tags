@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createWalletClient, custom, parseAbi } from "viem";
+import { Attribution } from "ox/erc8021";
 import { celo } from "viem/chains";
 import {
   ERC_8021_MARKER,
@@ -67,6 +68,50 @@ describe("withAttribution — appends the suffix (stub client)", () => {
   });
 });
 
+describe("withAttribution — sync variants and writeContract on a stub client", () => {
+  function fullStub() {
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    const rec = (name: string) => async (args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      return "0xhash";
+    };
+    return {
+      calls,
+      client: {
+        sendTransaction: rec("sendTransaction"),
+        sendTransactionSync: rec("sendTransactionSync"),
+        writeContract: rec("writeContract"),
+        writeContractSync: rec("writeContractSync"),
+      },
+    };
+  }
+
+  it("wraps sendTransactionSync like sendTransaction", async () => {
+    const { client, calls } = fullStub();
+    const wallet = withAttribution(CODE)(client);
+    await wallet.sendTransactionSync({ to: TO, data: TRANSFER });
+    expect(calls[0]!.name).toBe("sendTransactionSync");
+    expect(calls[0]!.args.data).toBe(TRANSFER + SUFFIX.slice(2));
+  });
+
+  it("wraps writeContract / writeContractSync via dataSuffix", async () => {
+    const { client, calls } = fullStub();
+    const wallet = withAttribution(CODE)(client);
+    await wallet.writeContract({ address: TO, abi: [], functionName: "f" });
+    await wallet.writeContractSync({ address: TO, abi: [], functionName: "f", dataSuffix: "0xdead" });
+    expect(calls[0]!.name).toBe("writeContract");
+    expect(calls[0]!.args.dataSuffix).toBe(SUFFIX);
+    expect(calls[1]!.name).toBe("writeContractSync");
+    expect(calls[1]!.args.dataSuffix).toBe("0xdead" + SUFFIX.slice(2));
+  });
+
+  it("only exposes the actions the client actually has", () => {
+    const { client } = stubClient();
+    const ext = withAttribution(CODE)(client);
+    expect(Object.keys(ext)).toEqual(["sendTransaction"]);
+  });
+});
+
 describe("withAttribution — data that is already tagged", () => {
   it("does not double-tag the same code", async () => {
     const { client, sent } = stubClient();
@@ -93,6 +138,19 @@ describe("withAttribution — data that is already tagged", () => {
     const pre = (TRANSFER + toRoleDataSuffix({ app: "x_app", wallet: "x_wallet" }).slice(2)) as `0x${string}`;
     await wallet.sendTransaction({ to: TO, data: pre });
     expect(sent[0]!.data).toBe(pre);
+  });
+
+  it("does not fail the transaction when the existing tag has codes outside Celo's charset", async () => {
+    // Another ERC-8021 emitter may use codes the SDK's own validator rejects
+    // (uppercase). The merge cannot re-encode those; the tx must still send
+    // and still carry our code at the very end.
+    const { client, sent } = stubClient();
+    const wallet = withAttribution(CODE)(client);
+    const foreign = (TRANSFER + Attribution.toDataSuffix({ codes: ["BaseApp"] }).slice(2)) as `0x${string}`;
+    await wallet.sendTransaction({ to: TO, data: foreign });
+    const data = sent[0]!.data as `0x${string}`;
+    expect(data).toBe(foreign + SUFFIX.slice(2));
+    expect(fromDataSuffix(data)).toEqual({ codes: [CODE], schemaId: 0 });
   });
 
   it("folds a call-site dataSuffix in before ours so the tag stays last", async () => {

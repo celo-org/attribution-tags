@@ -161,15 +161,15 @@ interface DecodedSuffix {
   app?: string;         // Schema 2 only
   wallet?: string;      // Schema 2 only
   service?: string[];   // Schema 2 only
-  sender?: Address;     // ERC-4337 only: the smart account to credit
+  sender?: `0x${string}`; // ERC-4337 only: the smart account to credit
 }
 
 interface UserOpAttribution {
-  sender: Address;                    // UserOperation sender (smart account)
+  sender: `0x${string}`;              // UserOperation sender (smart account)
   attribution: DecodedSuffix | null;  // null if that op is untagged
 }
 
-ENTRY_POINT_ADDRESSES: { v0_6: Address; v0_7: Address }  // canonical EntryPoints
+ENTRY_POINT_ADDRESSES: { v0_6: `0x${string}`; v0_7: `0x${string}` }  // canonical EntryPoints
 
 type AttributionTagSuffix = Hex  // alias for the suffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"

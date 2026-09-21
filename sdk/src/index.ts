@@ -10,7 +10,7 @@ export type TxHash = `0x${string}`;
 export interface TxClient {
   getTransaction(args: {
     hash: TxHash;
-  }): Promise<{ input?: string; to?: string | null } | null | undefined>;
+  }): Promise<{ input?: string } | null | undefined>;
 }
 
 export const ERC_8021_MARKER =

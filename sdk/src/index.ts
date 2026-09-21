@@ -410,3 +410,122 @@ export function codeFromRepo(repo: string): string {
   const digest = OxHash.sha256(Bytes.fromString(normalized), { as: "Hex" });
   return `celo_${digest.slice(2, 14)}`;
 }
+
+// ---------------------------------------------------------------------------
+// withAttribution — tag every transaction a viem wallet client sends
+//
+// Appending the suffix by hand at every call site is the failure mode we
+// see most: one path forgets it and produces untagged transactions with no
+// error anywhere. Extending the client once moves the suffix to a single
+// place. `sendTransaction` gets the suffix appended to `data`;
+// `writeContract` gets it via viem's own `dataSuffix` parameter, because
+// viem binds `writeContract` to the client at the time `walletActions` is
+// applied, so a later `sendTransaction` override does not reach it. The
+// `*Sync` variants are wrapped when the client has them.
+// ---------------------------------------------------------------------------
+
+const MARKER_BYTES = ERC_8021_MARKER.length / 2 - 1; // 16
+
+/**
+ * Append `suffix` to `data`, merging with an existing Schema 0 tag
+ * (codes are deduplicated, existing codes first) and leaving an existing
+ * Schema 2 (role-based) tag untouched.
+ */
+function appendSuffixToData(data: unknown, suffix: Hex.Hex): Hex.Hex {
+  const base = (typeof data === "string" && data.length >= 2 ? data : "0x") as Hex.Hex;
+  const existing = fromDataSuffix(base);
+  if (!existing) {
+    return (base + suffix.slice(2)) as Hex.Hex;
+  }
+  if (existing.schemaId !== 0) {
+    // Already carries a role-based tag (e.g. from a facilitator) — don't
+    // rewrite what another party encoded.
+    return base;
+  }
+  const ours = fromDataSuffix(suffix)!.codes;
+  const merged = [...existing.codes];
+  for (const c of ours) if (!merged.includes(c)) merged.push(c);
+  // Schema 0 suffix layout: [codes][len:1][schema:1][marker:16]
+  const existingBytes = existing.codes.join(",").length + 1 + 1 + MARKER_BYTES;
+  const stripped = base.slice(0, base.length - existingBytes * 2) as Hex.Hex;
+  return (stripped + toDataSuffix(merged).slice(2)) as Hex.Hex;
+}
+
+/** viem accepts `dataSuffix` as a hex string or `{ value, required }`. */
+function dataSuffixValue(dataSuffix: unknown): string | undefined {
+  if (typeof dataSuffix === "string") return dataSuffix;
+  if (dataSuffix && typeof dataSuffix === "object" && "value" in dataSuffix) {
+    const v = (dataSuffix as { value: unknown }).value;
+    return typeof v === "string" ? v : undefined;
+  }
+  return undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Action = (args: any) => any;
+
+/** Structural stand-in for a viem WalletClient (no viem types in our .d.ts). */
+export interface AttributableClient {
+  sendTransaction: Action;
+  sendTransactionSync?: Action;
+  writeContract?: Action;
+  writeContractSync?: Action;
+}
+
+type Attributed<C extends AttributableClient> = Pick<
+  C,
+  Extract<keyof C, keyof AttributableClient>
+>;
+
+// sendTransaction: append to `data` (folding in a call-site dataSuffix
+// first, since viem would otherwise concatenate it after ours).
+function tagSend(args: Record<string, unknown> | undefined, suffix: Hex.Hex) {
+  const { dataSuffix, ...rest } = args ?? {};
+  const callSite = dataSuffixValue(dataSuffix);
+  const base =
+    callSite !== undefined && callSite.length > 2
+      ? (typeof rest.data === "string" ? rest.data : "0x") + callSite.slice(2)
+      : rest.data;
+  return { ...rest, data: appendSuffixToData(base, suffix) };
+}
+
+// writeContract: we never see the encoded calldata, so ride viem's own
+// `dataSuffix` parameter and make sure our tag comes last.
+function tagWrite(args: Record<string, unknown> | undefined, suffix: Hex.Hex) {
+  const { dataSuffix, ...rest } = args ?? {};
+  const callSite = dataSuffixValue(dataSuffix);
+  return { ...rest, dataSuffix: appendSuffixToData(callSite, suffix) };
+}
+
+/**
+ * viem wallet-client extension that appends the ERC-8021 suffix for `code`
+ * to every transaction the client sends:
+ *
+ *   const wallet = createWalletClient({ chain: celo, transport })
+ *     .extend(withAttribution("celo_b7k3p9da"));
+ *
+ * Covers `sendTransaction`, `writeContract`, their `*Sync` variants, and
+ * plain value transfers (empty `data`). If the data already ends with a
+ * Schema 0 tag the codes are merged into one suffix; a Schema 2 tag is
+ * left as is.
+ */
+export function withAttribution(code: string | readonly string[]) {
+  const suffix = toDataSuffix(code);
+  return <C extends AttributableClient>(client: C): Attributed<C> => {
+    const actions: AttributableClient = {
+      sendTransaction: (args) => client.sendTransaction(tagSend(args, suffix)),
+    };
+    if (typeof client.sendTransactionSync === "function") {
+      actions.sendTransactionSync = (args) =>
+        client.sendTransactionSync!(tagSend(args, suffix));
+    }
+    if (typeof client.writeContract === "function") {
+      actions.writeContract = (args) => client.writeContract!(tagWrite(args, suffix));
+    }
+    if (typeof client.writeContractSync === "function") {
+      actions.writeContractSync = (args) =>
+        client.writeContractSync!(tagWrite(args, suffix));
+    }
+    return actions as Attributed<C>;
+  };
+}

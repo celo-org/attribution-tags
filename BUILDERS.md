@@ -10,10 +10,11 @@ If you're writing a parser, indexer, or Dune model for tagged transactions inste
 
 ERC-8021 is the standard for appending a small attribution suffix to a transaction's calldata. The suffix is invisible to the contract being called (the EVM discards trailing bytes), so adding it never changes execution semantics — it just makes the transaction identifiable as having come through your app.
 
-`@celo/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you five exports:
+`@celo/attribution-tags` wraps the [`ox/erc8021`](https://oxlib.sh/ercs/erc8021/Attribution) standard and gives you these exports:
 
 ```ts
 toDataSuffix(code | [codes])               // → encoded suffix (Hex)
+withAttribution(code | [codes])            // → viem wallet-client extension that tags every tx
 codeFromHostname(hostname)                 // → "celo_" + 12 hex chars, derived from a hostname
 codeFromRepo("owner/repo")                 // → "celo_" + 12 hex chars, derived from a GitHub repo
 fromDataSuffix(data)                       // → { codes, schemaId } | null
@@ -29,7 +30,33 @@ npm install @celo/attribution-tags viem
 # or pnpm add / yarn add — same args
 ```
 
-`viem` is an optional peer dep; you only need it if you call `verifyTx` (decoding from a tx hash).
+`viem` is an optional peer dep; you only need it if you call `verifyTx` (decoding from a tx hash) or use the `withAttribution` client extension below.
+
+## Recommended setup — tag every transaction once
+
+The most common failure we see is not a broken suffix; it is a code path that never appended one. Every `sendTransaction` / `writeContract` call site has to remember the suffix, and the one that forgets produces untagged transactions with no error anywhere. The fix is to attach the suffix where the client is built, not where each transaction is sent:
+
+```ts
+import { withAttribution } from '@celo/attribution-tags'
+import { createWalletClient, custom } from 'viem'
+import { celo } from 'viem/chains'
+
+const wallet = createWalletClient({
+  chain: celo,
+  transport: custom(window.ethereum),
+}).extend(withAttribution('celo_b7k3p9da'))   // your code, or codeFromHostname(...)
+
+// Every one of these is tagged — no per-call changes:
+await wallet.sendTransaction({ to, value })                       // plain transfer
+await wallet.sendTransaction({ to, data })                        // raw calldata
+await wallet.writeContract({ address, abi, functionName, args })  // contract call
+```
+
+`withAttribution` wraps `sendTransaction`, `writeContract` and their `*Sync` variants on that client. If data already ends with a Schema 0 tag (say you also append at a call site), the codes are merged into a single suffix rather than tagged twice; a Schema 2 (role-based) tag is left alone. A call-site `dataSuffix` still works and is placed before the attribution tag so the tag stays at the very end.
+
+If you're on viem ≥ 2.45 you can alternatively pass `dataSuffix: toDataSuffix(code)` to `createWalletClient` — viem's own mechanism, which also covers `sendCalls`. Use one or the other, not both.
+
+**wagmi:** get the client from `useWalletClient()` and extend it the same way, or keep passing `dataSuffix` to `useWriteContract` (see below). The manual patterns in the rest of this guide still work — they are what `withAttribution` does for you.
 
 ## Quickstart — MiniPay mini apps
 
@@ -228,6 +255,7 @@ You can also verify against a real tx via Celoscan: this [Mondeto example tx](ht
 
 - **Don't include the suffix in your contract's expected calldata.** It goes *after*. The contract sees only its real arguments.
 - **Smart-account transactions look untagged if you only read the end of the calldata.** With ERC-4337 wallets the bundler wraps your call in `handleOps`, so the suffix is inside the UserOperation's `callData`, not at the end of the outer transaction. That is not a bug in your integration — the suffix is on-chain and `verifyTx` / `verifyUserOps` decode it (see [Verifying it worked](#verifying-it-worked)). Relayers that genuinely re-encode calldata can still drop the suffix; if you see a bundle with no tag in any operation, test with an EOA to isolate the cause and contact us.
+- **`withAttribution` does not cover EIP-5792 `sendCalls` / batch APIs.** For those, pass viem's `dataSuffix` capability yourself, or use viem ≥ 2.45's client-level `dataSuffix` option.
 - **Stick to `[a-z0-9_]` in your codes.** The SDK rejects uppercase, spaces, and commas at the encode step.
 - **The suffix doesn't survive contract execution.** The EVM only sees the function-selector + args part of calldata; the suffix is metadata for off-chain readers, not for your contract logic.
 

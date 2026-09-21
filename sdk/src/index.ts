@@ -376,3 +376,37 @@ export function codeFromHostname(hostname: string): string {
   // scale. Don't change without recomputing every pinned vector.
   return `celo_${digest.slice(2, 14)}`;
 }
+
+// Celo Builders platform flow: the platform assigns each registered
+// project a code derived from its GitHub repository slug. This must stay
+// byte-identical to the platform's derivation (celo-org/celo-builders,
+// `deriveAttributionTag`): trim → lowercase → SHA-256 → first 6 bytes →
+// "celo_" prefix. Don't change without recomputing every pinned vector.
+const REPO_SLUG_RE = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/;
+
+function repoSlug(input: string): string {
+  const trimmed = input.trim();
+  // Accept a GitHub URL and reduce it to owner/repo — the platform parses
+  // URLs the same way before deriving.
+  const m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/?#]+)\/([^/?#]+)/i.exec(
+    trimmed,
+  );
+  if (m) {
+    return `${m[1]}/${m[2]!.replace(/\.git$/i, "")}`;
+  }
+  return trimmed;
+}
+
+export function codeFromRepo(repo: string): string {
+  if (typeof repo !== "string" || repo.trim().length === 0) {
+    throw new Error("codeFromRepo: repository slug is required");
+  }
+  const normalized = repoSlug(repo).toLowerCase();
+  if (!REPO_SLUG_RE.test(normalized)) {
+    throw new Error(
+      `codeFromRepo: expected "owner/repo" or a github.com URL, got ${JSON.stringify(repo)}`,
+    );
+  }
+  const digest = OxHash.sha256(Bytes.fromString(normalized), { as: "Hex" });
+  return `celo_${digest.slice(2, 14)}`;
+}

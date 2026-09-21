@@ -225,6 +225,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle decoding)
 - [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
+- [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository
 
 Install: `npm install @celo/attribution-tags viem`
 

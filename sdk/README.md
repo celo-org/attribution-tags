@@ -130,6 +130,8 @@ fromDataSuffix(suffix);
 
 Most apps don't need this: if you're tagging your own transactions, use `toDataSuffix` (Schema 0). Schema 2 is for infrastructure that submits transactions *for* others.
 
+> **Status on Celo:** the hosted x402 facilitator (`api.x402.celo.org`) does not emit Schema 2 tags yet. The facilitator-side implementation is under review upstream in [x402-rs/x402-rs#99](https://github.com/x402-rs/x402-rs/pull/99); x402 settlements on Celo are untagged until it ships.
+
 ## Wire format
 
 **Schema 0** (default — `toDataSuffix`). The suffix layout, reading left-to-right at the end of calldata:

@@ -131,6 +131,31 @@ What to do:
 
 The SDK does all of this: `fromEntryPointCalldata(input)` (offline) and `verifyUserOps({ client, hash })` return `[{ sender, attribution }]` per operation, and `verifyTx` falls back to the first tagged operation with `sender` set.
 
+
+## Relayed intents (Porto-style EIP-7702 wallets)
+
+The tail-of-input assumption also misses transactions from wallets that sign an intent and let a relay submit it (EIP-7702 accounts on the Porto / Ithaca stack, for example Altana wallets). The relay's EOA calls the Orchestrator's `execute(bytes encodedIntent)`, and the app's tagged calldata is the `data` of a call inside the intent's `executionData`, followed by the intent's other fields, so the outer input never ends with the marker.
+
+A real example: [`0x5131fd…4d410aea`](https://celoscan.io/tx/0x5131fd5b5d14012e6a97a86a6cb4608264a52eebc1f67bf1e47a7a814d410aea) — `to` is the Orchestrator, the outer `from` is a relay, the outer `fromDataSuffix` is `null`, and the calls inside the intent carry `celo_d6a0b77183c8`.
+
+What to do:
+
+- Detect by selector: `execute(bytes)` = `0x09c5eabe`, and the batch form `execute(bytes[])` = `0x44471415`.
+- ABI-decode the argument as the intent tuple (first two fields: `address eoa`, `bytes executionData`), then decode `executionData` as `(address to, uint256 value, bytes data)[]` and look for the marker in each call's `data`.
+- Read only those calls. They are covered by the account's EIP-712 signature; the intent's later fields (payment amounts, the relay's signatures) are not, so a marker found there says nothing about the account.
+- Credit the intent's `eoa` — the wallet that signed — not the outer `from`, which is the relay. Emit one row per intent, not per transaction.
+
+The SDK does all of this: `fromOrchestratorCalldata(input)` (offline) and `verifyIntents({ client, hash })` return `[{ sender, attribution }]` per intent, and `verifyTx` falls back to the first tagged intent with `sender` set.
+
+For a SQL-first pass on Dune, the marker filter has to stop requiring the tail for these transactions:
+
+```sql
+WHERE bytearray_substring(data, 1, 4) = 0x09c5eabe
+  AND varbinary_position(data, 0x80218021802180218021802180218021) > 0
+```
+
+That finds candidates only. The marker can also appear in a field the account did not sign, so decode the intent before crediting.
+
 ## The hostname-derivation algorithm
 
 For MiniPay-style auto-derived codes, each app's code is derived deterministically from its hostname:
@@ -222,8 +247,9 @@ Your parser should split on `,` regardless of which shape arrives. Each comma-se
 Even if you're parsing in SQL, these can be useful for spot-checks and validation:
 
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
-- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle decoding)
+- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle and relayed-intent decoding)
 - [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
+- [`verifyIntents({ client, hash })`](sdk/src/index.ts) / [`fromOrchestratorCalldata(data)`](sdk/src/index.ts) — decode every signed intent in an `Orchestrator.execute` call, with the account that signed it
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 - [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository
 

@@ -242,6 +242,15 @@ await verifyTx({ client, hash })
 
 `verifyUserOps({ client, hash })` returns one entry per operation in the bundle, so you can see which ops were tagged and by whom. Note that the outer `from` is the bundler, not your user — credit `sender`.
 
+**Relayed wallets (EIP-7702 accounts behind a relay, e.g. Altana).** If your app or agent transacts from a wallet that signs an intent and lets a relay submit it, the transaction you see on-chain is the relay's call to `Orchestrator.execute`, and your suffix sits on a call inside the signed intent rather than at the end of the outer input. Tag your calls as usual (the relay does not strip the suffix), and `verifyTx` decodes the intent and adds `sender` — the wallet that signed it:
+
+```ts
+await verifyTx({ client, hash })
+// → { codes: ["celo_b7k3p9da"], schemaId: 0, sender: "0xb244…" }
+```
+
+`verifyIntents({ client, hash })` returns one entry per intent. The outer `from` is the relay, not your wallet — credit `sender`.
+
 For offline debugging without an RPC roundtrip:
 
 ```ts
@@ -257,6 +266,7 @@ You can also verify against a real tx via Celoscan: this [Mondeto example tx](ht
 
 - **Don't include the suffix in your contract's expected calldata.** It goes *after*. The contract sees only its real arguments.
 - **Smart-account transactions look untagged if you only read the end of the calldata.** With ERC-4337 wallets the bundler wraps your call in `handleOps`, so the suffix is inside the UserOperation's `callData`, not at the end of the outer transaction. That is not a bug in your integration — the suffix is on-chain and `verifyTx` / `verifyUserOps` decode it (see [Verifying it worked](#verifying-it-worked)). Relayers that genuinely re-encode calldata can still drop the suffix; if you see a bundle with no tag in any operation, test with an EOA to isolate the cause and contact us.
+- **Relayed transactions look untagged for the same reason.** A wallet that signs an intent and has a relay submit it (EIP-7702 accounts such as Altana wallets) produces an `Orchestrator.execute` call whose input does not end with your suffix. The suffix is on your call inside the signed intent, and `verifyTx` / `verifyIntents` decode it.
 - **`withAttribution` does not cover EIP-5792 `sendCalls` / batch APIs.** For those, pass viem's `dataSuffix` capability yourself, or use viem ≥ 2.45's client-level `dataSuffix` option.
 - **Stick to `[a-z0-9_]` in your codes.** The SDK rejects uppercase, spaces, and commas at the encode step.
 - **The suffix doesn't survive contract execution.** The EVM only sees the function-selector + args part of calldata; the suffix is metadata for off-chain readers, not for your contract logic.

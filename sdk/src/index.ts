@@ -1,5 +1,5 @@
 import { Attribution } from "ox/erc8021";
-import { AbiFunction, Bytes, Hash as OxHash } from "ox";
+import { AbiFunction, AbiParameters, Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
 
 // Structural stand-ins for viem's Hash / PublicClient. viem is an
@@ -162,10 +162,11 @@ export interface DecodedSuffix {
   /** Schema 2 only: service (client) codes. */
   service?: string[];
   /**
-   * Set only when the suffix was decoded from an ERC-4337 UserOperation
-   * inside an EntryPoint `handleOps` bundle: the smart account that
+   * Set only when the suffix was decoded from inside a wrapped transaction:
+   * an ERC-4337 UserOperation in an EntryPoint `handleOps` bundle, or a
+   * signed intent in an Orchestrator `execute` call. It is the account that
    * produced the operation. Credit this address, not the outer tx `from`
-   * (which is the bundler).
+   * (which is the bundler or the relay).
    */
   sender?: `0x${string}`;
 }
@@ -235,9 +236,22 @@ export async function verifyTx(
     // middle of the outer input, not at the end. Fall back to the first
     // tagged operation in the bundle.
     const ops = fromEntryPointCalldata(input);
-    if (!ops) return null;
-    for (const op of ops) {
-      if (op.attribution) return { ...op.attribution, sender: op.sender };
+    if (ops) {
+      for (const op of ops) {
+        if (op.attribution) return { ...op.attribution, sender: op.sender };
+      }
+      return null;
+    }
+    // Relayed intents (Porto-style EIP-7702 wallets): a relay submits the
+    // account's signed intent through Orchestrator.execute, so the builder's
+    // suffix is on a call inside the intent. Fall back to the first tagged
+    // intent, credited to the account that signed it.
+    const intents = fromOrchestratorCalldata(input);
+    if (!intents) return null;
+    for (const intent of intents) {
+      if (intent.attribution) {
+        return { ...intent.attribution, sender: intent.sender };
+      }
     }
     return null;
   } catch {
@@ -347,6 +361,124 @@ export async function verifyUserOps(
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
     return fromEntryPointCalldata(tx.input as Hex.Hex);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Relayed intents (Porto-style EIP-7702 wallets, e.g. Altana)
+//
+// The account is an EIP-7702 delegated EOA. It signs an intent (its list of
+// calls, a nonce, the fee terms) and a relay submits it by calling
+// Orchestrator.execute(bytes encodedIntent). The outer `from` is the relay
+// and the outer input never ends with the marker: the builder's suffix is on
+// a call inside the intent's executionData, followed by the intent's other
+// fields.
+//
+// Only the calls in executionData are read. They are covered by the
+// account's EIP-712 signature, so a tag found there was put there by the
+// account. The intent's unsigned fields (the relay's payment amounts and
+// signatures) are never scanned, so a relay cannot add or change a tag.
+//
+// Detection is keyed on the execute selectors rather than an address, so any
+// Orchestrator deployment decodes. The intent layout is that of Orchestrator
+// 0.5.x, the version deployed on Celo.
+// ---------------------------------------------------------------------------
+
+const ORCHESTRATOR_EXECUTE = AbiFunction.from(
+  "function execute(bytes encodedIntent)",
+);
+
+const ORCHESTRATOR_EXECUTE_BATCH = AbiFunction.from(
+  "function execute(bytes[] encodedIntents)",
+);
+
+/** Selectors of the Orchestrator entry points that carry signed intents. */
+export const ORCHESTRATOR_SELECTORS = {
+  /** execute(bytes encodedIntent) */
+  execute: AbiFunction.getSelector(ORCHESTRATOR_EXECUTE),
+  /** execute(bytes[] encodedIntents) */
+  executeBatch: AbiFunction.getSelector(ORCHESTRATOR_EXECUTE_BATCH),
+} as const;
+
+const INTENT = AbiParameters.from(
+  "(address eoa, bytes executionData, uint256 nonce, address payer, address paymentToken, uint256 paymentMaxAmount, uint256 combinedGas, bytes[] encodedPreCalls, bytes[] encodedFundTransfers, address settler, uint256 expiry, bool isMultichain, address funder, bytes funderSignature, bytes settlerContext, uint256 paymentAmount, address paymentRecipient, bytes signature, bytes paymentSignature, address supportedAccountImplementation)",
+);
+
+const INTENT_CALLS = AbiParameters.from(
+  "(address to, uint256 value, bytes data)[]",
+);
+
+export interface IntentAttribution {
+  /** The account that signed the intent — the address to credit. */
+  sender: `0x${string}`;
+  /** Decoded suffix from the intent's calls, or null if untagged. */
+  attribution: DecodedSuffix | null;
+}
+
+function fromEncodedIntent(encoded: Hex.Hex): IntentAttribution {
+  const [intent] = AbiParameters.decode(INTENT, encoded) as unknown as [
+    { eoa: `0x${string}`; executionData: Hex.Hex },
+  ];
+  let attribution: DecodedSuffix | null = null;
+  if (intent.executionData !== "0x") {
+    const [calls] = AbiParameters.decode(
+      INTENT_CALLS,
+      intent.executionData,
+    ) as unknown as [readonly { data: Hex.Hex }[]];
+    // A wallet tags the end of what it executes, so the last tagged call wins
+    // when a batch carries more than one.
+    for (let i = calls.length - 1; i >= 0 && !attribution; i--) {
+      attribution = fromEmbeddedSuffix(calls[i]!.data);
+    }
+  }
+  return { sender: intent.eoa, attribution };
+}
+
+/**
+ * Decode an Orchestrator `execute` calldata into one entry per signed
+ * intent. Returns null if the input is not an Orchestrator `execute` call or
+ * cannot be decoded. Pure — no RPC.
+ */
+export function fromOrchestratorCalldata(
+  input: Hex.Hex,
+): IntentAttribution[] | null {
+  if (typeof input !== "string" || input.length < 10) return null;
+  const selector = input.slice(0, 10).toLowerCase();
+  try {
+    if (selector === ORCHESTRATOR_SELECTORS.execute) {
+      const [encoded] = AbiFunction.decodeData(
+        ORCHESTRATOR_EXECUTE,
+        input,
+      ) as unknown as [Hex.Hex];
+      return [fromEncodedIntent(encoded)];
+    }
+    if (selector === ORCHESTRATOR_SELECTORS.executeBatch) {
+      const [encoded] = AbiFunction.decodeData(
+        ORCHESTRATOR_EXECUTE_BATCH,
+        input,
+      ) as unknown as [readonly Hex.Hex[]];
+      return encoded.map(fromEncodedIntent);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a transaction and, if it is an Orchestrator `execute` call, decode
+ * the attribution of every intent in it. Returns null for other transactions
+ * and on RPC errors — never throws.
+ */
+export async function verifyIntents(
+  args: VerifyTxArgs,
+): Promise<IntentAttribution[] | null> {
+  try {
+    const tx = await args.client.getTransaction({ hash: args.hash });
+    if (!tx?.input) return null;
+    return fromOrchestratorCalldata(tx.input as Hex.Hex);
   } catch {
     return null;
   }

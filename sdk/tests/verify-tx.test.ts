@@ -1,5 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { toDataSuffix, verifyTx, verifyUserOps } from "../src/index.js";
+import {
+  toDataSuffix,
+  verifyIntents,
+  verifyTx,
+  verifyUserOps,
+} from "../src/index.js";
+import {
+  MAINNET_MULTI_ACCOUNT,
+  MAINNET_MULTI_CODE,
+  MAINNET_MULTI_INPUT,
+  MAINNET_MULTI_TO,
+  MAINNET_SINGLE_ACCOUNT,
+  MAINNET_SINGLE_CODE,
+  MAINNET_SINGLE_INPUT,
+  MAINNET_SINGLE_TO,
+  SEPOLIA_PASSKEY_ACCOUNT,
+  SEPOLIA_PASSKEY_CODES,
+  SEPOLIA_PASSKEY_INPUT,
+  SEPOLIA_PASSKEY_TO,
+  SEPOLIA_UNSIGNED_FIELD_INPUT,
+  SEPOLIA_UNSIGNED_FIELD_TO,
+  SEPOLIA_UNTAGGED_ACCOUNT,
+  SEPOLIA_UNTAGGED_INPUT,
+  SEPOLIA_UNTAGGED_TO,
+} from "./fixtures/orchestrator-intents.js";
 import {
   V06_CODE,
   V06_INPUT,
@@ -122,5 +146,86 @@ describe("verifyUserOps", () => {
   it("returns null when the RPC throws", async () => {
     const client = clientThatThrows();
     expect(await verifyUserOps({ client: client as never, hash: HASH })).toBeNull();
+  });
+});
+
+describe("verifyTx — relayed intents (Orchestrator.execute)", () => {
+  it("decodes a tagged call inside a signed intent (real Mainnet tx) and credits the account", async () => {
+    const client = clientReturning(MAINNET_SINGLE_INPUT, MAINNET_SINGLE_TO);
+    const result = await verifyTx({ client: client as never, hash: HASH });
+    expect(result).toEqual({
+      codes: [MAINNET_SINGLE_CODE],
+      schemaId: 0,
+      sender: MAINNET_SINGLE_ACCOUNT,
+    });
+  });
+
+  it("decodes a session-key intent with several tagged calls (real Mainnet tx)", async () => {
+    const client = clientReturning(MAINNET_MULTI_INPUT, MAINNET_MULTI_TO);
+    const result = await verifyTx({ client: client as never, hash: HASH });
+    expect(result).toEqual({
+      codes: [MAINNET_MULTI_CODE],
+      schemaId: 0,
+      sender: MAINNET_MULTI_ACCOUNT,
+    });
+  });
+
+  it("decodes an intent signed by a passkey (real Sepolia tx)", async () => {
+    const client = clientReturning(SEPOLIA_PASSKEY_INPUT, SEPOLIA_PASSKEY_TO);
+    const result = await verifyTx({ client: client as never, hash: HASH });
+    expect(result).toEqual({
+      codes: [...SEPOLIA_PASSKEY_CODES],
+      schemaId: 0,
+      sender: SEPOLIA_PASSKEY_ACCOUNT,
+    });
+  });
+
+  it("a tag at the very end of the outer input is read as for any transaction, with no sender", async () => {
+    // Unchanged behaviour: the end of the outer input is checked first. Here
+    // the tail tag is outside the account's signed calls, so no account is
+    // named; verifyIntents reports the intent itself as untagged.
+    const client = clientReturning(SEPOLIA_UNSIGNED_FIELD_INPUT, SEPOLIA_UNSIGNED_FIELD_TO);
+    const result = await verifyTx({ client: client as never, hash: HASH });
+    expect(result).toEqual({ codes: ["altana", "altana_test"], schemaId: 0 });
+    expect(result).not.toHaveProperty("sender");
+    const intents = await verifyIntents({ client: client as never, hash: HASH });
+    expect(intents![0]!.attribution).toBeNull();
+  });
+
+  it("returns null for a relayed intent with no tag (real Sepolia tx)", async () => {
+    const client = clientReturning(SEPOLIA_UNTAGGED_INPUT, SEPOLIA_UNTAGGED_TO);
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+  });
+});
+
+describe("verifyIntents", () => {
+  it("returns every intent with the account that signed it", async () => {
+    const client = clientReturning(MAINNET_SINGLE_INPUT, MAINNET_SINGLE_TO);
+    const intents = await verifyIntents({ client: client as never, hash: HASH });
+    expect(intents).toEqual([
+      {
+        sender: MAINNET_SINGLE_ACCOUNT,
+        attribution: { codes: [MAINNET_SINGLE_CODE], schemaId: 0 },
+      },
+    ]);
+  });
+
+  it("returns the account with a null attribution for an untagged intent", async () => {
+    const client = clientReturning(SEPOLIA_UNTAGGED_INPUT, SEPOLIA_UNTAGGED_TO);
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: SEPOLIA_UNTAGGED_ACCOUNT, attribution: null },
+    ]);
+  });
+
+  it("returns null for a transaction that is not an Orchestrator call", async () => {
+    const client = clientReturning(toDataSuffix("celo_b7k3p9da"));
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toBeNull();
+    const bundle = clientReturning(V06_INPUT, V06_TO);
+    expect(await verifyIntents({ client: bundle as never, hash: HASH })).toBeNull();
+  });
+
+  it("returns null when the RPC throws", async () => {
+    const client = clientThatThrows();
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toBeNull();
   });
 });

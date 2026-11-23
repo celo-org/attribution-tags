@@ -91,6 +91,22 @@ fromEntryPointCalldata(tx.input); // same, offline, from raw calldata
 
 Credit `sender`, not the transaction's `from` — `from` is the bundler.
 
+### Relayed intents (Porto-style EIP-7702 wallets)
+
+Some wallets are EIP-7702 accounts that sign an *intent* (their list of calls) and let a relay submit it, for example Altana wallets. The on-chain transaction is the relay's call to `Orchestrator.execute(bytes encodedIntent)`, and the app's suffix is on a call inside the signed intent. `verifyTx` handles this automatically: if the outer input carries no tag and is not a `handleOps` bundle, it decodes the intent and returns the tagged call's codes, with `sender` set to the account that signed. To see every intent:
+
+```ts
+import { verifyIntents, fromOrchestratorCalldata } from "@celo/attribution-tags";
+
+await verifyIntents({ client, hash });
+// → [{ sender: "0xb244…", attribution: { codes: ["celo_d6a0b77183c8"], schemaId: 0 } }]
+//   or null if the tx is not an Orchestrator execute call
+
+fromOrchestratorCalldata(tx.input); // same, offline, from raw calldata
+```
+
+Credit `sender`, not the transaction's `from` — `from` is the relay. Only the calls in the intent are read: they are covered by the account's signature, so a relay cannot add or change a tag.
+
 ### Decode a suffix offline
 
 ```ts
@@ -173,6 +189,8 @@ withAttribution(code | codes): (client) => client   // viem wallet-client extens
 fromDataSuffix(data: Hex): DecodedSuffix | null
 verifyTx({ client, hash }): Promise<DecodedSuffix | null>
 verifyUserOps({ client, hash }): Promise<UserOpAttribution[] | null>   // ERC-4337 bundles
+verifyIntents({ client, hash }): Promise<IntentAttribution[] | null>   // relayed intents (Orchestrator.execute)
+fromOrchestratorCalldata(data: Hex): IntentAttribution[] | null        // offline variant
 fromEntryPointCalldata(data: Hex): UserOpAttribution[] | null          // offline variant
 codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
 codeFromRepo(repo: string): string          // → "celo_" + 12 hex chars ("owner/repo" or github.com URL)
@@ -183,7 +201,7 @@ interface DecodedSuffix {
   app?: string;         // Schema 2 only
   wallet?: string;      // Schema 2 only
   service?: string[];   // Schema 2 only
-  sender?: `0x${string}`; // ERC-4337 only: the smart account to credit
+  sender?: `0x${string}`; // ERC-4337 and relayed intents only: the account to credit
 }
 
 interface UserOpAttribution {
@@ -191,7 +209,13 @@ interface UserOpAttribution {
   attribution: DecodedSuffix | null;  // null if that op is untagged
 }
 
+interface IntentAttribution {
+  sender: `0x${string}`;              // account that signed the intent
+  attribution: DecodedSuffix | null;  // null if that intent is untagged
+}
+
 ENTRY_POINT_ADDRESSES: { v0_6: `0x${string}`; v0_7: `0x${string}` }  // canonical EntryPoints
+ORCHESTRATOR_SELECTORS: { execute: `0x${string}`; executeBatch: `0x${string}` }  // Orchestrator entry points
 
 type AttributionTagSuffix = Hex  // alias for the suffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
@@ -201,7 +225,7 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `withAttribution(code)` returns a viem `extend` function. It validates the code once at construction (throws on an invalid code, before any transaction is sent) and wraps `sendTransaction`, `sendTransactionSync`, `writeContract` and `writeContractSync` when the client has them. The SDK still doesn't import viem: the extension is typed structurally, so your client keeps viem's own types.
 
-`verifyTx` never throws — RPC errors return `null`. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations.
+`verifyTx` never throws — RPC errors return `null`. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations. For relayed intents (`Orchestrator.execute`, detected by selector so any deployment works) it falls back the same way to the first tagged intent, with `sender` set to the account that signed it; `verifyIntents` returns all of them.
 
 `codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time.
 

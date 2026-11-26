@@ -1,5 +1,5 @@
 import { Attribution } from "ox/erc8021";
-import { AbiFunction, AbiParameters, Bytes, Hash as OxHash } from "ox";
+import { AbiEvent, AbiFunction, AbiParameters, Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
 
 // Structural stand-ins for viem's Hash / PublicClient. viem is an
@@ -10,7 +10,24 @@ export type TxHash = `0x${string}`;
 export interface TxClient {
   getTransaction(args: {
     hash: TxHash;
-  }): Promise<{ input?: string } | null | undefined>;
+  }): Promise<{ input?: string; to?: string | null } | null | undefined>;
+  /**
+   * Needed only to verify relayed intents (Orchestrator.execute): an intent
+   * is credited only when the receipt shows it executed. viem's PublicClient
+   * provides it.
+   */
+  getTransactionReceipt?(args: { hash: TxHash }): Promise<
+    | {
+        status?: unknown;
+        logs?: readonly {
+          address: string;
+          topics: readonly string[];
+          data: string;
+        }[];
+      }
+    | null
+    | undefined
+  >;
 }
 
 export const ERC_8021_MARKER =
@@ -220,6 +237,12 @@ export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
 export interface VerifyTxArgs {
   client: TxClient;
   hash: TxHash;
+  /**
+   * Extra Orchestrator deployments to accept for relayed intents, on top of
+   * `ORCHESTRATOR_ADDRESSES`. An `execute` call to any other address is not
+   * read.
+   */
+  orchestrators?: readonly string[];
 }
 
 export async function verifyTx(
@@ -245,8 +268,9 @@ export async function verifyTx(
     // Relayed intents (Porto-style EIP-7702 wallets): a relay submits the
     // account's signed intent through Orchestrator.execute, so the builder's
     // suffix is on a call inside the intent. Fall back to the first tagged
-    // intent, credited to the account that signed it.
-    const intents = fromOrchestratorCalldata(input);
+    // intent that the receipt shows was executed, credited to the account
+    // that signed it.
+    const intents = await executedIntents(args, tx);
     if (!intents) return null;
     for (const intent of intents) {
       if (intent.attribution) {
@@ -376,15 +400,41 @@ export async function verifyUserOps(
 // a call inside the intent's executionData, followed by the intent's other
 // fields.
 //
-// Only the calls in executionData are read. They are covered by the
-// account's EIP-712 signature, so a tag found there was put there by the
-// account. The intent's unsigned fields (the relay's payment amounts and
-// signatures) are never scanned, so a relay cannot add or change a tag.
+// Only the calls in executionData are read; the intent's other fields (the
+// relay's payment amounts and signatures) are never scanned.
 //
-// Detection is keyed on the execute selectors rather than an address, so any
-// Orchestrator deployment decodes. The intent layout is that of Orchestrator
-// 0.5.x, the version deployed on Celo.
+// Calldata alone proves nothing: anyone can send `execute` calldata holding a
+// made-up intent that names any account. The calls are the account's own only
+// once the Orchestrator has checked the account's EIP-712 signature and run
+// them, which it reports with an IntentExecuted event. So:
+//
+//   - fromOrchestratorCalldata (offline) decodes and returns what the calldata
+//     claims. Its output is UNVERIFIED.
+//   - verifyTx / verifyIntents credit an intent only when the transaction
+//     succeeded, went to a known Orchestrator deployment, and that contract
+//     emitted IntentExecuted for the same account and nonce with no error.
+//
+// The intent layout is that of Orchestrator 0.5.x, the version deployed on
+// Celo.
 // ---------------------------------------------------------------------------
+
+/**
+ * Orchestrator deployments whose intents verifyTx / verifyIntents accept.
+ * Pass `orchestrators` to accept others.
+ */
+export const ORCHESTRATOR_ADDRESSES = {
+  /** Celo Mainnet (42220), Orchestrator 0.5.5 */
+  celo: "0xAF140d0416A994Aebb3fA6212B16CE6700f09751",
+  /** Celo Sepolia (11142220), Orchestrator 0.5.5 */
+  celoSepolia: "0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9",
+} as const;
+
+const INTENT_EXECUTED = AbiEvent.from(
+  "event IntentExecuted(address indexed eoa, uint256 indexed nonce, bool incremented, bytes4 err)",
+);
+
+/** topic0 of IntentExecuted(address,uint256,bool,bytes4). */
+export const INTENT_EXECUTED_TOPIC = AbiEvent.getSelector(INTENT_EXECUTED);
 
 const ORCHESTRATOR_EXECUTE = AbiFunction.from(
   "function execute(bytes encodedIntent)",
@@ -411,15 +461,25 @@ const INTENT_CALLS = AbiParameters.from(
 );
 
 export interface IntentAttribution {
-  /** The account that signed the intent — the address to credit. */
+  /**
+   * The account the intent names as its signer — the address to credit, once
+   * the intent is known to have executed.
+   */
   sender: `0x${string}`;
-  /** Decoded suffix from the intent's calls, or null if untagged. */
+  /**
+   * Decoded suffix from the intent's calls, or null if untagged. From
+   * verifyIntents it is also null for an intent that did not execute.
+   */
   attribution: DecodedSuffix | null;
 }
 
-function fromEncodedIntent(encoded: Hex.Hex): IntentAttribution {
+interface DecodedIntent extends IntentAttribution {
+  nonce: bigint;
+}
+
+function fromEncodedIntent(encoded: Hex.Hex): DecodedIntent {
   const [intent] = AbiParameters.decode(INTENT, encoded) as unknown as [
-    { eoa: `0x${string}`; executionData: Hex.Hex },
+    { eoa: `0x${string}`; executionData: Hex.Hex; nonce: bigint },
   ];
   let attribution: DecodedSuffix | null = null;
   if (intent.executionData !== "0x") {
@@ -433,17 +493,29 @@ function fromEncodedIntent(encoded: Hex.Hex): IntentAttribution {
       attribution = fromEmbeddedSuffix(calls[i]!.data);
     }
   }
-  return { sender: intent.eoa, attribution };
+  return { sender: intent.eoa, nonce: intent.nonce, attribution };
 }
 
 /**
- * Decode an Orchestrator `execute` calldata into one entry per signed
- * intent. Returns null if the input is not an Orchestrator `execute` call or
- * cannot be decoded. Pure — no RPC.
+ * Decode an Orchestrator `execute` calldata into one entry per intent.
+ * Returns null if the input is not an Orchestrator `execute` call or cannot
+ * be decoded. Pure — no RPC.
+ *
+ * UNVERIFIED: this reads what the calldata claims. It does not know whether
+ * the transaction went to an Orchestrator, whether the account's signature
+ * was valid, or whether the intent ran, and anyone can send calldata naming
+ * any account. Use verifyIntents / verifyTx to credit a `sender`, or apply
+ * the same checks yourself (see INDEXERS.md).
  */
 export function fromOrchestratorCalldata(
   input: Hex.Hex,
 ): IntentAttribution[] | null {
+  const intents = decodeIntents(input);
+  if (!intents) return null;
+  return intents.map(({ sender, attribution }) => ({ sender, attribution }));
+}
+
+function decodeIntents(input: Hex.Hex): DecodedIntent[] | null {
   if (typeof input !== "string" || input.length < 10) return null;
   const selector = input.slice(0, 10).toLowerCase();
   try {
@@ -467,9 +539,67 @@ export function fromOrchestratorCalldata(
   }
 }
 
+function succeeded(status: unknown): boolean {
+  return status === "success" || status === "0x1" || status === 1 || status === 1n;
+}
+
 /**
- * Fetch a transaction and, if it is an Orchestrator `execute` call, decode
- * the attribution of every intent in it. Returns null for other transactions
+ * The intents of an Orchestrator `execute` transaction, with the attribution
+ * kept only for those the receipt shows were executed:
+ *
+ *   - the transaction's `to` is a known Orchestrator deployment (otherwise
+ *     null: the call is not treated as an Orchestrator call at all),
+ *   - the transaction succeeded,
+ *   - that contract emitted IntentExecuted with the same account and nonce,
+ *     `incremented` true and `err` zero.
+ *
+ * An intent that fails any of the last two is returned with a null
+ * attribution. Throws on RPC errors; callers catch.
+ */
+async function executedIntents(
+  args: VerifyTxArgs,
+  tx: { input?: string; to?: string | null },
+): Promise<IntentAttribution[] | null> {
+  const to = typeof tx.to === "string" ? tx.to.toLowerCase() : null;
+  const known = [
+    ...Object.values(ORCHESTRATOR_ADDRESSES),
+    ...(args.orchestrators ?? []),
+  ].map((a) => a.toLowerCase());
+  if (to === null || !known.includes(to)) return null;
+
+  const intents = decodeIntents(tx.input as Hex.Hex);
+  if (!intents) return null;
+
+  const receipt = await args.client.getTransactionReceipt?.({ hash: args.hash });
+  const logs = receipt && succeeded(receipt.status) ? (receipt.logs ?? []) : [];
+  const ran = (intent: DecodedIntent): boolean =>
+    logs.some((log) => {
+      if (log.address.toLowerCase() !== to) return false;
+      const [topic0, eoa, nonce] = log.topics;
+      if (topic0?.toLowerCase() !== INTENT_EXECUTED_TOPIC) return false;
+      if (!eoa || !nonce) return false;
+      if (`0x${eoa.slice(-40)}`.toLowerCase() !== intent.sender.toLowerCase()) return false;
+      if (BigInt(nonce) !== intent.nonce) return false;
+      // data = abi.encode(bool incremented, bytes4 err)
+      const data = log.data.slice(2);
+      if (data.length < 128) return false;
+      const incremented = BigInt(`0x${data.slice(0, 64)}`) !== 0n;
+      const err = data.slice(64, 72);
+      return incremented && err === "00000000";
+    });
+
+  return intents.map((intent) => ({
+    sender: intent.sender,
+    attribution: ran(intent) ? intent.attribution : null,
+  }));
+}
+
+/**
+ * Fetch a transaction and, if it is an `execute` call to a known
+ * Orchestrator, return the attribution of every intent in it. An intent is
+ * credited only when the receipt shows it executed (see ORCHESTRATOR_ADDRESSES
+ * and INTENT_EXECUTED_TOPIC); otherwise its attribution is null. Needs a
+ * client with `getTransactionReceipt`. Returns null for other transactions
  * and on RPC errors — never throws.
  */
 export async function verifyIntents(
@@ -478,7 +608,7 @@ export async function verifyIntents(
   try {
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
-    return fromOrchestratorCalldata(tx.input as Hex.Hex);
+    return await executedIntents(args, tx);
   } catch {
     return null;
   }

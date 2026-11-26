@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AbiFunction, AbiParameters } from "ox";
+import { AbiFunction } from "ox";
 import {
   ORCHESTRATOR_SELECTORS,
   fromDataSuffix,
@@ -23,64 +23,16 @@ import {
   SEPOLIA_UNTAGGED_ACCOUNT,
   SEPOLIA_UNTAGGED_INPUT,
 } from "./fixtures/orchestrator-intents.js";
-
-const EXECUTE = AbiFunction.from("function execute(bytes encodedIntent)");
-const EXECUTE_BATCH = AbiFunction.from(
-  "function execute(bytes[] encodedIntents)",
-);
-const INTENT = AbiParameters.from(
-  "(address eoa, bytes executionData, uint256 nonce, address payer, address paymentToken, uint256 paymentMaxAmount, uint256 combinedGas, bytes[] encodedPreCalls, bytes[] encodedFundTransfers, address settler, uint256 expiry, bool isMultichain, address funder, bytes funderSignature, bytes settlerContext, uint256 paymentAmount, address paymentRecipient, bytes signature, bytes paymentSignature, address supportedAccountImplementation)",
-);
-const CALLS = AbiParameters.from("(address to, uint256 value, bytes data)[]");
-
-const ACCOUNT_A = "0x1111111111111111111111111111111111111111" as const;
-const ACCOUNT_B = "0x2222222222222222222222222222222222222222" as const;
-const TOKEN = "0x3333333333333333333333333333333333333333" as const;
-const ZERO = "0x0000000000000000000000000000000000000000" as const;
-const TRANSFER = ("0xa9059cbb" + "11".repeat(64)) as `0x${string}`;
-
-function tagged(data: `0x${string}`, code: string | string[]): `0x${string}` {
-  return (data + toDataSuffix(code).slice(2)) as `0x${string}`;
-}
-
-function intent(
-  eoa: `0x${string}`,
-  calls: readonly `0x${string}`[],
-  extra: { paymentSignature?: `0x${string}`; emptyExecutionData?: boolean } = {},
-): `0x${string}` {
-  const executionData = extra.emptyExecutionData
-    ? ("0x" as const)
-    : AbiParameters.encode(CALLS, [
-        calls.map((data) => ({ to: TOKEN, value: 0n, data })),
-      ]);
-  return AbiParameters.encode(INTENT, [
-    {
-      eoa,
-      executionData,
-      nonce: 1n,
-      payer: ZERO,
-      paymentToken: ZERO,
-      paymentMaxAmount: 0n,
-      combinedGas: 100_000n,
-      encodedPreCalls: [],
-      encodedFundTransfers: [],
-      settler: ZERO,
-      expiry: 0n,
-      isMultichain: false,
-      funder: ZERO,
-      funderSignature: "0x",
-      settlerContext: "0x",
-      paymentAmount: 0n,
-      paymentRecipient: ZERO,
-      signature: ("0x" + "ab".repeat(65)) as `0x${string}`,
-      paymentSignature: extra.paymentSignature ?? "0x",
-      supportedAccountImplementation: ZERO,
-    },
-  ]);
-}
-
-const single = (encoded: `0x${string}`) =>
-  AbiFunction.encodeData(EXECUTE, [encoded]);
+import {
+  ACCOUNT_A,
+  ACCOUNT_B,
+  TOKEN,
+  TRANSFER,
+  batch,
+  intent,
+  single,
+  tagged,
+} from "./helpers/intents.js";
 
 describe("fromOrchestratorCalldata — real Celo Mainnet intents", () => {
   it("the outer input is NOT a plain tagged tx, nor a handleOps bundle", () => {
@@ -254,11 +206,9 @@ describe("fromOrchestratorCalldata — tag shapes", () => {
 });
 
 describe("fromOrchestratorCalldata — execute(bytes[]) batches", () => {
-  const input = AbiFunction.encodeData(EXECUTE_BATCH, [
-    [
-      intent(ACCOUNT_A, [tagged(TRANSFER, "celo_b7k3p9da")]),
-      intent(ACCOUNT_B, [TRANSFER]),
-    ],
+  const input = batch([
+    intent(ACCOUNT_A, [tagged(TRANSFER, "celo_b7k3p9da")]),
+    intent(ACCOUNT_B, [TRANSFER]),
   ]);
 
   it("uses the batch selector", () => {
@@ -269,6 +219,18 @@ describe("fromOrchestratorCalldata — execute(bytes[]) batches", () => {
     expect(fromOrchestratorCalldata(input)).toEqual([
       { sender: ACCOUNT_A, attribution: { codes: ["celo_b7k3p9da"], schemaId: 0 } },
       { sender: ACCOUNT_B, attribution: null },
+    ]);
+  });
+});
+
+describe("fromOrchestratorCalldata — its output is unverified", () => {
+  it("decodes an intent nobody signed, naming any account: do not credit from calldata alone", () => {
+    // The helper builds intents with a junk signature. The offline decoder
+    // still returns the tag and the claimed account; verifyTx / verifyIntents
+    // are the functions that check the intent executed (see verify-tx.test.ts).
+    const forged = single(intent(ACCOUNT_B, [tagged(TRANSFER, "celo_b7k3p9da")]));
+    expect(fromOrchestratorCalldata(forged)).toEqual([
+      { sender: ACCOUNT_B, attribution: { codes: ["celo_b7k3p9da"], schemaId: 0 } },
     ]);
   });
 });

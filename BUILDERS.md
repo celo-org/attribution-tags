@@ -242,7 +242,7 @@ await verifyTx({ client, hash })
 
 `verifyUserOps({ client, hash })` returns one entry per operation in the bundle, so you can see which ops were tagged and by whom. Note that the outer `from` is the bundler, not your user — credit `sender`.
 
-**Relayed wallets (EIP-7702 accounts behind a relay, e.g. Altana).** If your app or agent transacts from a wallet that signs an intent and lets a relay submit it, the transaction you see on-chain is the relay's call to `Orchestrator.execute`, and your suffix sits on a call inside the signed intent rather than at the end of the outer input. Tag your calls as usual (the relay does not strip the suffix), and `verifyTx` decodes the intent and adds `sender` — the wallet that signed it:
+**Relayed wallets (EIP-7702 accounts behind a relay, e.g. Altana).** If your app or agent transacts from a wallet that signs an intent and lets a relay submit it, the transaction you see on-chain is the relay's call to `Orchestrator.execute`, and your suffix sits on a call inside the signed intent rather than at the end of the outer input. Tag your calls as usual (the relay does not strip the suffix), and `verifyTx` decodes the intent and adds `sender` — the wallet that signed it. It credits an intent only once it has executed: the transaction succeeded on a known Orchestrator and the contract emitted `IntentExecuted` for your wallet with no error. A transaction that failed, or an intent the Orchestrator rejected, shows as untagged:
 
 ```ts
 await verifyTx({ client, hash })

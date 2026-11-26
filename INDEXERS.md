@@ -140,21 +140,33 @@ A real example: [`0x5131fd…4d410aea`](https://celoscan.io/tx/0x5131fd5b5d14012
 
 What to do:
 
-- Detect by selector: `execute(bytes)` = `0x09c5eabe`, and the batch form `execute(bytes[])` = `0x44471415`.
-- ABI-decode the argument as the intent tuple (first two fields: `address eoa`, `bytes executionData`), then decode `executionData` as `(address to, uint256 value, bytes data)[]` and look for the marker in each call's `data`.
-- Read only those calls. They are covered by the account's EIP-712 signature; the intent's later fields (payment amounts, the relay's signatures) are not, so a marker found there says nothing about the account.
+- Detect by selector **and** address: `execute(bytes)` = `0x09c5eabe`, or the batch form `execute(bytes[])` = `0x44471415`, sent to a known Orchestrator deployment — `0xAF140d0416A994Aebb3fA6212B16CE6700f09751` on Celo Mainnet, `0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9` on Celo Sepolia. The selector alone is not enough: anyone can send the same calldata to an EOA or to a contract of their own.
+- ABI-decode the argument as the intent tuple (first three fields: `address eoa`, `bytes executionData`, `uint256 nonce`), then decode `executionData` as `(address to, uint256 value, bytes data)[]` and look for the marker in each call's `data`. Read only those calls, never the intent's later fields (payment amounts, the relay's signatures).
+- **Credit only an executed intent.** The calldata is a claim: it can name any wallet as `eoa`, with a junk signature. The Orchestrator checks the wallet's EIP-712 signature, runs the calls, and emits `IntentExecuted(address indexed eoa, uint256 indexed nonce, bool incremented, bytes4 err)` (topic0 `0x23a3c1343409f01965611c9c4c8b99e36d7b09ca22516507d5486ce0584379b8`). Require, in a transaction that succeeded, a log from the Orchestrator itself with the same `eoa` and `nonce`, `incremented = true` and `err = 0x00000000`. A rejected intent gets a non-zero `err` and the transaction still succeeds, so the receipt status alone is not enough either.
 - Credit the intent's `eoa` — the wallet that signed — not the outer `from`, which is the relay. Emit one row per intent, not per transaction.
 
-The SDK does all of this: `fromOrchestratorCalldata(input)` (offline) and `verifyIntents({ client, hash })` return `[{ sender, attribution }]` per intent, and `verifyTx` falls back to the first tagged intent with `sender` set.
+The SDK does all of this in `verifyIntents({ client, hash })`, which returns `[{ sender, attribution }]` per intent with a null attribution for any intent that did not execute, and in `verifyTx`, which falls back to the first tagged, executed intent with `sender` set. `fromOrchestratorCalldata(input)` is the offline decode step only: its output is unverified.
 
-For a SQL-first pass on Dune, the marker filter has to stop requiring the tail for these transactions:
+On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed intents remain:
 
 ```sql
-WHERE bytearray_substring(data, 1, 4) = 0x09c5eabe
-  AND varbinary_position(data, 0x80218021802180218021802180218021) > 0
+SELECT t.hash, l.topic1 AS eoa, l.topic2 AS nonce
+FROM celo.transactions t
+JOIN celo.logs l
+  ON l.tx_hash = t.hash
+ AND l.block_number = t.block_number
+ AND l.contract_address = t."to"
+ AND l.topic0 = 0x23a3c1343409f01965611c9c4c8b99e36d7b09ca22516507d5486ce0584379b8
+WHERE t."to" = 0xAF140d0416A994Aebb3fA6212B16CE6700f09751
+  AND t.success
+  AND bytearray_substring(t.data, 1, 4) IN (0x09c5eabe, 0x44471415)
+  AND varbinary_position(t.data, 0x80218021802180218021802180218021) > 0
+  -- incremented = true, err = 0
+  AND bytearray_substring(l.data, 32, 1) = 0x01
+  AND bytearray_substring(l.data, 33, 4) = 0x00000000
 ```
 
-That finds candidates only. The marker can also appear in a field the account did not sign, so decode the intent before crediting.
+Each row is an executed intent in a transaction that carries a marker somewhere. Decode the intent to read the code from its calls, and match the decoded `eoa` and `nonce` to the row before crediting: the marker can also sit in a field outside the calls, and a batch can hold intents that did not execute.
 
 ## The hostname-derivation algorithm
 
@@ -249,7 +261,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle and relayed-intent decoding)
 - [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
-- [`verifyIntents({ client, hash })`](sdk/src/index.ts) / [`fromOrchestratorCalldata(data)`](sdk/src/index.ts) — decode every signed intent in an `Orchestrator.execute` call, with the account that signed it
+- [`verifyIntents({ client, hash })`](sdk/src/index.ts) / [`fromOrchestratorCalldata(data)`](sdk/src/index.ts) — the intents of an `Orchestrator.execute` call with the account to credit; `verifyIntents` credits only executed intents, `fromOrchestratorCalldata` is the unverified offline decode
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 - [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository
 

@@ -6,9 +6,19 @@ import {
   verifyUserOps,
 } from "../src/index.js";
 import {
+  INTENT_EXECUTED_TOPIC,
   ORCHESTRATOR_ADDRESSES,
+  fromOrchestratorCalldata,
 } from "../src/index.js";
 import {
+  ANVIL_FIRST_TX_TAGGED_ACCOUNT,
+  ANVIL_FIRST_TX_TAGGED_INPUT,
+  ANVIL_FIRST_TX_TAGGED_RECEIPT,
+  ANVIL_FIRST_TX_TAGGED_TO,
+  ANVIL_FORGED_BATCH_ACCOUNT,
+  ANVIL_FORGED_BATCH_INPUT,
+  ANVIL_FORGED_BATCH_RECEIPT,
+  ANVIL_FORGED_BATCH_TO,
   MAINNET_MULTI_ACCOUNT,
   MAINNET_MULTI_CODE,
   MAINNET_MULTI_INPUT,
@@ -19,6 +29,10 @@ import {
   MAINNET_SINGLE_INPUT,
   MAINNET_SINGLE_RECEIPT,
   MAINNET_SINGLE_TO,
+  SEPOLIA_FIRST_TX_ACCOUNT,
+  SEPOLIA_FIRST_TX_INPUT,
+  SEPOLIA_FIRST_TX_RECEIPT,
+  SEPOLIA_FIRST_TX_TO,
   SEPOLIA_PASSKEY_ACCOUNT,
   SEPOLIA_PASSKEY_CODES,
   SEPOLIA_PASSKEY_INPUT,
@@ -367,6 +381,174 @@ describe("verifyTx — a forged intent is not credited", () => {
   it("a real, executed transaction is not credited when its receipt is swapped for another's", async () => {
     const client = relayed(MAINNET_SINGLE_INPUT, MAINNET_SINGLE_TO, MAINNET_MULTI_RECEIPT);
     expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+  });
+});
+
+describe("verifyTx — each intent is paired with its own log", () => {
+  const ATTACKER = "celo_attacker1";
+  const OWN = "celo_b7k3p9da";
+  const failedA7 = intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_A, nonce: 7n, incremented: false, err: "0xdeadbeef" });
+  const okA7 = intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_A, nonce: 7n });
+
+  it("a forged intent placed before the genuine one cannot borrow its log (same eoa and nonce)", async () => {
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, ATTACKER)], { nonce: 7n }), // forged
+      intent(ACCOUNT_A, [TRANSFER], { nonce: 7n }), // genuine
+    ]);
+    const client = relayed(input, ORCHESTRATOR, ok([failedA7, okA7]));
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: ACCOUNT_A, attribution: null },
+      { sender: ACCOUNT_A, attribution: null },
+    ]);
+  });
+
+  it("with the genuine intent tagged, it is the one credited, not the forged copy in front of it", async () => {
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, ATTACKER)], { nonce: 7n }),
+      intent(ACCOUNT_A, [tagged(TRANSFER, OWN)], { nonce: 7n }),
+    ]);
+    const client = relayed(input, ORCHESTRATOR, ok([failedA7, okA7]));
+    expect(await verifyTx({ client: client as never, hash: HASH })).toEqual({
+      codes: [OWN],
+      schemaId: 0,
+      sender: ACCOUNT_A,
+    });
+  });
+
+  it("a forged intent placed after the genuine one is not credited either", async () => {
+    // The second use of the same nonce fails, and the Orchestrator logs it.
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, OWN)], { nonce: 7n }),
+      intent(ACCOUNT_A, [tagged(TRANSFER, ATTACKER)], { nonce: 7n }),
+    ]);
+    const client = relayed(input, ORCHESTRATOR, ok([okA7, failedA7]));
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: ACCOUNT_A, attribution: { codes: [OWN], schemaId: 0 } },
+      { sender: ACCOUNT_A, attribution: null },
+    ]);
+  });
+
+  it("an intent with no log of its own means nothing in the transaction is credited", async () => {
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, "celo_aaaaaaaa")]),
+      intent(ACCOUNT_B, [tagged(TRANSFER, "celo_bbbbbbbb")], { nonce: 7n }),
+    ]);
+    const onlyB = relayed(input, ORCHESTRATOR, ok([intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_B, nonce: 7n })]));
+    expect(await verifyTx({ client: onlyB as never, hash: HASH })).toBeNull();
+    const onlyA = relayed(input, ORCHESTRATOR, ok([executedA]));
+    expect(await verifyIntents({ client: onlyA as never, hash: HASH })).toEqual([
+      { sender: ACCOUNT_A, attribution: null },
+      { sender: ACCOUNT_B, attribution: null },
+    ]);
+  });
+
+  it("logs in a different order than the intents credit nothing", async () => {
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, "celo_aaaaaaaa")]),
+      intent(ACCOUNT_B, [tagged(TRANSFER, "celo_bbbbbbbb")], { nonce: 7n }),
+    ]);
+    const client = relayed(
+      input,
+      ORCHESTRATOR,
+      ok([intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_B, nonce: 7n }), executedA]),
+    );
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+  });
+});
+
+describe("verifyTx — a new account's first transaction (pre-call logs)", () => {
+  // The key set-up pre-call emits its own IntentExecuted (another nonce)
+  // before the intent's, so one intent accounts for two logs.
+  const setUp = intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_A, nonce: 0xc1d0n });
+
+  it("real first transaction: one intent, two IntentExecuted logs from the Orchestrator", () => {
+    expect(fromOrchestratorCalldata(SEPOLIA_FIRST_TX_INPUT)).toHaveLength(1);
+    const executed = SEPOLIA_FIRST_TX_RECEIPT.logs.filter(
+      (l) => l.address === SEPOLIA_FIRST_TX_TO && l.topics[0] === INTENT_EXECUTED_TOPIC,
+    );
+    expect(executed).toHaveLength(2);
+    expect(executed[0]!.topics[2]).not.toBe(executed[1]!.topics[2]);
+  });
+
+  it("real first transaction: the intent is read and its account returned", async () => {
+    const client = relayed(SEPOLIA_FIRST_TX_INPUT, SEPOLIA_FIRST_TX_TO, SEPOLIA_FIRST_TX_RECEIPT);
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: SEPOLIA_FIRST_TX_ACCOUNT, attribution: null }, // it carries no tag
+    ]);
+  });
+
+  it("a tagged first transaction is credited: the pre-call's log is skipped, not counted", async () => {
+    const client = relayed(TAGGED_INTENT, ORCHESTRATOR, ok([setUp, executedA]));
+    expect(await verifyTx({ client: client as never, hash: HASH })).toEqual({
+      codes: [CODE],
+      schemaId: 0,
+      sender: ACCOUNT_A,
+    });
+  });
+
+  it("the pre-call's log does not stand in for the intent's", async () => {
+    // Same account, successful, but another nonce: the intent has no log.
+    const client = relayed(TAGGED_INTENT, ORCHESTRATOR, ok([setUp]));
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+  });
+
+  it("a first transaction whose intent failed is not credited", async () => {
+    const failed = intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_A, incremented: true, err: "0xad4db224" });
+    const client = relayed(TAGGED_INTENT, ORCHESTRATOR, ok([setUp, failed]));
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
+  });
+
+  it("in a batch, pre-call logs between intents do not shift the pairing", async () => {
+    const input = batch([
+      intent(ACCOUNT_A, [tagged(TRANSFER, "celo_aaaaaaaa")]),
+      intent(ACCOUNT_B, [tagged(TRANSFER, "celo_bbbbbbbb")], { nonce: 7n }),
+    ]);
+    const receipt = ok([
+      setUp,
+      executedA,
+      intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_B, nonce: 0xc1d1n }),
+      intentExecutedLog({ address: ORCHESTRATOR, eoa: ACCOUNT_B, nonce: 7n }),
+    ]);
+    const client = relayed(input, ORCHESTRATOR, receipt);
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: ACCOUNT_A, attribution: { codes: ["celo_aaaaaaaa"], schemaId: 0 } },
+      { sender: ACCOUNT_B, attribution: { codes: ["celo_bbbbbbbb"], schemaId: 0 } },
+    ]);
+  });
+});
+
+describe("verifyTx — executed by the deployed Orchestrator on an anvil fork of Celo Sepolia", () => {
+  const executedLogs = (r: { logs: readonly { address: string; topics: readonly string[] }[] }, to: string) =>
+    r.logs.filter((l) => l.address === to && l.topics[0] === INTENT_EXECUTED_TOPIC);
+
+  it("a new account's first transaction, tagged: one intent, two logs, credited", async () => {
+    expect(fromOrchestratorCalldata(ANVIL_FIRST_TX_TAGGED_INPUT)).toHaveLength(1);
+    expect(executedLogs(ANVIL_FIRST_TX_TAGGED_RECEIPT, ANVIL_FIRST_TX_TAGGED_TO)).toHaveLength(2);
+    const client = relayed(ANVIL_FIRST_TX_TAGGED_INPUT, ANVIL_FIRST_TX_TAGGED_TO, ANVIL_FIRST_TX_TAGGED_RECEIPT);
+    expect(await verifyTx({ client: client as never, hash: HASH })).toEqual({
+      codes: ["altana", "altana_test"],
+      schemaId: 0,
+      sender: ANVIL_FIRST_TX_TAGGED_ACCOUNT,
+    });
+  });
+
+  it("a forged copy in front of a genuine first transaction: two intents, three logs, only the genuine one credited", async () => {
+    expect(fromOrchestratorCalldata(ANVIL_FORGED_BATCH_INPUT)).toEqual([
+      { sender: ANVIL_FORGED_BATCH_ACCOUNT, attribution: { codes: ["celo_attacker1"], schemaId: 0 } },
+      { sender: ANVIL_FORGED_BATCH_ACCOUNT, attribution: { codes: ["altana", "altana_test"], schemaId: 0 } },
+    ]);
+    expect(executedLogs(ANVIL_FORGED_BATCH_RECEIPT, ANVIL_FORGED_BATCH_TO)).toHaveLength(3);
+    const client = relayed(ANVIL_FORGED_BATCH_INPUT, ANVIL_FORGED_BATCH_TO, ANVIL_FORGED_BATCH_RECEIPT);
+    expect(await verifyIntents({ client: client as never, hash: HASH })).toEqual([
+      { sender: ANVIL_FORGED_BATCH_ACCOUNT, attribution: null },
+      { sender: ANVIL_FORGED_BATCH_ACCOUNT, attribution: { codes: ["altana", "altana_test"], schemaId: 0 } },
+    ]);
+    expect(await verifyTx({ client: client as never, hash: HASH })).toEqual({
+      codes: ["altana", "altana_test"],
+      schemaId: 0,
+      sender: ANVIL_FORGED_BATCH_ACCOUNT,
+    });
   });
 });
 

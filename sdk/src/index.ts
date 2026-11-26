@@ -551,10 +551,12 @@ function succeeded(status: unknown): boolean {
  *     null: the call is not treated as an Orchestrator call at all),
  *   - the transaction succeeded,
  *   - that contract emitted IntentExecuted with the same account and nonce,
- *     `incremented` true and `err` zero.
+ *     `incremented` true and `err` zero, as that intent's own log (intents
+ *     and logs are paired in order, each log used once).
  *
  * An intent that fails any of the last two is returned with a null
- * attribution. Throws on RPC errors; callers catch.
+ * attribution. If any intent has no log of its own, none is credited. Throws
+ * on RPC errors; callers catch.
  */
 async function executedIntents(
   args: VerifyTxArgs,
@@ -572,25 +574,63 @@ async function executedIntents(
 
   const receipt = await args.client.getTransactionReceipt?.({ hash: args.hash });
   const logs = receipt && succeeded(receipt.status) ? (receipt.logs ?? []) : [];
-  const ran = (intent: DecodedIntent): boolean =>
-    logs.some((log) => {
-      if (log.address.toLowerCase() !== to) return false;
-      const [topic0, eoa, nonce] = log.topics;
-      if (topic0?.toLowerCase() !== INTENT_EXECUTED_TOPIC) return false;
-      if (!eoa || !nonce) return false;
-      if (`0x${eoa.slice(-40)}`.toLowerCase() !== intent.sender.toLowerCase()) return false;
-      if (BigInt(nonce) !== intent.nonce) return false;
-      // data = abi.encode(bool incremented, bytes4 err)
-      const data = log.data.slice(2);
-      if (data.length < 128) return false;
-      const incremented = BigInt(`0x${data.slice(0, 64)}`) !== 0n;
-      const err = data.slice(64, 72);
-      return incremented && err === "00000000";
-    });
 
-  return intents.map((intent) => ({
+  // The Orchestrator's IntentExecuted logs, in the order it emitted them.
+  const executed: { eoa: string; nonce: bigint; ok: boolean }[] = [];
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== to) continue;
+    const [topic0, eoa, nonce] = log.topics;
+    if (topic0?.toLowerCase() !== INTENT_EXECUTED_TOPIC) continue;
+    if (!eoa || !nonce) continue;
+    // data = abi.encode(bool incremented, bytes4 err)
+    const data = log.data.slice(2);
+    const ok =
+      data.length >= 128 &&
+      BigInt(`0x${data.slice(0, 64)}`) !== 0n &&
+      data.slice(64, 72) === "00000000";
+    executed.push({
+      eoa: `0x${eoa.slice(-40)}`.toLowerCase(),
+      nonce: BigInt(nonce),
+      ok,
+    });
+  }
+
+  // Pair each intent with ITS OWN log, in order. The Orchestrator runs the
+  // intents in the order given and emits exactly one IntentExecuted for each,
+  // failed or not, so intent i's log comes after intent i-1's. A log is used
+  // once and never looked at again: an intent that failed cannot borrow the
+  // success of a later intent carrying the same account and nonce (a forged
+  // copy placed in front of the genuine one in an execute(bytes[]) batch).
+  //
+  // Logs in between are skipped rather than counted: an intent's pre-calls
+  // (a new account's key set-up rides along with its first transaction) each
+  // emit their own IntentExecuted before the intent's, so one intent can
+  // account for several logs.
+  const results: boolean[] = [];
+  let next = 0;
+  let complete = true;
+  for (const intent of intents) {
+    const sender = intent.sender.toLowerCase();
+    let at = -1;
+    for (let k = next; k < executed.length; k++) {
+      if (executed[k]!.eoa === sender && executed[k]!.nonce === intent.nonce) {
+        at = k;
+        break;
+      }
+    }
+    if (at === -1) {
+      // An intent with no log of its own means the logs do not describe this
+      // calldata. Credit nothing.
+      complete = false;
+      break;
+    }
+    results.push(executed[at]!.ok);
+    next = at + 1;
+  }
+
+  return intents.map((intent, i) => ({
     sender: intent.sender,
-    attribution: ran(intent) ? intent.attribution : null,
+    attribution: complete && results[i] ? intent.attribution : null,
   }));
 }
 

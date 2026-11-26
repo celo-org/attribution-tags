@@ -143,9 +143,12 @@ What to do:
 - Detect by selector **and** address: `execute(bytes)` = `0x09c5eabe`, or the batch form `execute(bytes[])` = `0x44471415`, sent to a known Orchestrator deployment — `0xAF140d0416A994Aebb3fA6212B16CE6700f09751` on Celo Mainnet, `0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9` on Celo Sepolia. The selector alone is not enough: anyone can send the same calldata to an EOA or to a contract of their own.
 - ABI-decode the argument as the intent tuple (first three fields: `address eoa`, `bytes executionData`, `uint256 nonce`), then decode `executionData` as `(address to, uint256 value, bytes data)[]` and look for the marker in each call's `data`. Read only those calls, never the intent's later fields (payment amounts, the relay's signatures).
 - **Credit only an executed intent.** The calldata is a claim: it can name any wallet as `eoa`, with a junk signature. The Orchestrator checks the wallet's EIP-712 signature, runs the calls, and emits `IntentExecuted(address indexed eoa, uint256 indexed nonce, bool incremented, bytes4 err)` (topic0 `0x23a3c1343409f01965611c9c4c8b99e36d7b09ca22516507d5486ce0584379b8`). Require, in a transaction that succeeded, a log from the Orchestrator itself with the same `eoa` and `nonce`, `incremented = true` and `err = 0x00000000`. A rejected intent gets a non-zero `err` and the transaction still succeeds, so the receipt status alone is not enough either.
+- **Pair each intent with its own log, in order.** The Orchestrator runs the intents in the order given and emits exactly one `IntentExecuted` per intent, failed or not. Walk the intents and the Orchestrator's `IntentExecuted` logs together: for each intent take the next log with its `eoa` and `nonce`, judge the intent by that log alone, and never reuse a log. Matching by `eoa` and `nonce` without order is not enough: an `execute(bytes[])` batch can hold a forged intent and a genuine one with the same pair, and the forged one (whose own log has `err != 0`) would borrow the genuine one's success. Do not require the counts to be equal either: a pre-call emits its own `IntentExecuted` before its intent's, so a new account's first transaction is one intent and two logs ([example](https://celo-sepolia.blockscout.com/tx/0x81c741ef7d80f6cfab83d9c5e085451ce453c10834aefa4086d747ba3c4aa8cf)). Skip those. If an intent has no log of its own, credit nothing in that transaction.
 - Credit the intent's `eoa` — the wallet that signed — not the outer `from`, which is the relay. Emit one row per intent, not per transaction.
 
 The SDK does all of this in `verifyIntents({ client, hash })`, which returns `[{ sender, attribution }]` per intent with a null attribution for any intent that did not execute, and in `verifyTx`, which falls back to the first tagged, executed intent with `sender` set. `fromOrchestratorCalldata(input)` is the offline decode step only: its output is unverified.
+
+`verifyTx` and `verifyIntents` return `null` on RPC errors as well as for untagged transactions, and some public Celo RPCs drop calls under load. Retry, or use a dedicated RPC, before treating a `null` as untagged.
 
 On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed intents remain:
 
@@ -166,7 +169,7 @@ WHERE t."to" = 0xAF140d0416A994Aebb3fA6212B16CE6700f09751
   AND bytearray_substring(l.data, 33, 4) = 0x00000000
 ```
 
-Each row is an executed intent in a transaction that carries a marker somewhere. Decode the intent to read the code from its calls, and match the decoded `eoa` and `nonce` to the row before crediting: the marker can also sit in a field outside the calls, and a batch can hold intents that did not execute.
+Each row is a successful `IntentExecuted` in a transaction that carries a marker somewhere; it is a candidate, not a credit. Decode the transaction's intents and pair them with all of the Orchestrator's `IntentExecuted` logs in order, as described above, before crediting: the marker can sit in a field outside the calls, a batch can hold intents that did not execute, and a pre-call's log is not an intent's.
 
 ## The hostname-derivation algorithm
 

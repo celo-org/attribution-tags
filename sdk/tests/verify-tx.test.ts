@@ -62,6 +62,13 @@ import {
   V06_SENDER,
   V06_TO,
 } from "./fixtures/entrypoint-v06-handleops.js";
+import { V06_RECEIPT } from "./fixtures/entrypoint-receipts.js";
+
+/** The real v0.6 bundle with its real receipt. */
+const v06Client = () => ({
+  getTransaction: async () => ({ input: V06_INPUT, to: V06_TO }),
+  getTransactionReceipt: async () => V06_RECEIPT,
+});
 
 type StubClient = {
   getTransaction: (args: {
@@ -138,7 +145,7 @@ describe("verifyTx", () => {
 
 describe("verifyTx — ERC-4337 bundles", () => {
   it("decodes a correctly tagged UserOperation inside handleOps (v0.6, real Mainnet tx)", async () => {
-    const client = clientReturning(V06_INPUT, V06_TO);
+    const client = v06Client();
     const result = await verifyTx({ client: client as never, hash: HASH });
     expect(result).toEqual({ codes: [V06_CODE], schemaId: 0, sender: V06_SENDER });
   });
@@ -163,7 +170,7 @@ describe("verifyTx — ERC-4337 bundles", () => {
 
 describe("verifyUserOps", () => {
   it("returns every op with its sender", async () => {
-    const client = clientReturning(V06_INPUT, V06_TO);
+    const client = v06Client();
     const ops = await verifyUserOps({ client: client as never, hash: HASH });
     expect(ops).toEqual([
       { sender: V06_SENDER, attribution: { codes: [V06_CODE], schemaId: 0 } },

@@ -243,6 +243,12 @@ export interface VerifyTxArgs {
    * read.
    */
   orchestrators?: readonly string[];
+  /**
+   * Extra EntryPoint deployments to accept for ERC-4337 bundles, on top of
+   * `ENTRY_POINT_ADDRESSES`. A `handleOps` call to any other address is not
+   * read.
+   */
+  entryPoints?: readonly string[];
 }
 
 export async function verifyTx(
@@ -257,8 +263,8 @@ export async function verifyTx(
     // ERC-4337: the builder's suffix sits at the end of each UserOperation's
     // callData, which the bundler wraps inside handleOps — so it is in the
     // middle of the outer input, not at the end. Fall back to the first
-    // tagged operation in the bundle.
-    const ops = fromEntryPointCalldata(input);
+    // tagged operation that the receipt shows was executed.
+    const ops = await executedUserOps(args, tx);
     if (ops) {
       for (const op of ops) {
         if (op.attribution) return { ...op.attribution, sender: op.sender };
@@ -288,10 +294,18 @@ export async function verifyTx(
 //
 // A smart-account wallet puts the app's calldata (suffix included) into a
 // UserOperation and a bundler submits it to the EntryPoint via handleOps.
-// The outer tx therefore never ends with the marker. Detection is keyed on
-// the handleOps selector rather than the EntryPoint address so that forks
-// and custom EntryPoint deployments decode too; the canonical addresses
-// are exported for documentation and indexer allow-lists.
+// The outer tx therefore never ends with the marker.
+//
+// Calldata alone proves nothing: anyone can send handleOps calldata to a
+// contract that does not validate it, naming any account as `sender`. An
+// operation is the account's own only once a real EntryPoint has validated
+// it and run it, which it reports with a UserOperationEvent. So:
+//
+//   - fromEntryPointCalldata (offline) decodes by selector and returns what
+//     the calldata claims. Its output is UNVERIFIED.
+//   - verifyTx / verifyUserOps credit an operation only when the transaction
+//     succeeded, went to a known EntryPoint, and that contract emitted the
+//     operation's own UserOperationEvent with success = true.
 // ---------------------------------------------------------------------------
 
 export const ENTRY_POINT_ADDRESSES = {
@@ -299,7 +313,18 @@ export const ENTRY_POINT_ADDRESSES = {
   v0_6: "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
   /** EntryPoint v0.7 — handleOps(PackedUserOperation[],address), selector 0x765e827f */
   v0_7: "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+  /** EntryPoint v0.8 — same handleOps selector as v0.7 */
+  v0_8: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+  /** EntryPoint v0.9 — same handleOps selector as v0.7 */
+  v0_9: "0x433709009B8330FDa32311DF1C2AFA402eD8D009",
 } as const;
+
+const USER_OPERATION_EVENT = AbiEvent.from(
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+);
+
+/** topic0 of UserOperationEvent, the same in EntryPoint v0.6 through v0.9. */
+export const USER_OPERATION_EVENT_TOPIC = AbiEvent.getSelector(USER_OPERATION_EVENT);
 
 const HANDLE_OPS_V06 = AbiFunction.from(
   "function handleOps((address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit, uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, bytes paymasterAndData, bytes signature)[] ops, address beneficiary)",
@@ -347,13 +372,29 @@ export interface UserOpAttribution {
 }
 
 /**
- * Decode an EntryPoint `handleOps` calldata (v0.6 or v0.7) into one entry
- * per UserOperation. Returns null if the input is not a handleOps call or
- * cannot be decoded. Pure — no RPC.
+ * Decode an EntryPoint `handleOps` calldata (v0.6, or v0.7 and later) into
+ * one entry per UserOperation. Returns null if the input is not a handleOps
+ * call or cannot be decoded. Pure — no RPC.
+ *
+ * UNVERIFIED: this reads what the calldata claims. It does not know whether
+ * the transaction went to an EntryPoint or whether the operations were
+ * validated and executed, and anyone can send calldata naming any account.
+ * Use verifyUserOps / verifyTx to credit a `sender`, or apply the same checks
+ * yourself (see INDEXERS.md).
  */
 export function fromEntryPointCalldata(
   input: Hex.Hex,
 ): UserOpAttribution[] | null {
+  const ops = decodeUserOps(input);
+  if (!ops) return null;
+  return ops.map(({ sender, attribution }) => ({ sender, attribution }));
+}
+
+interface DecodedUserOp extends UserOpAttribution {
+  nonce: bigint;
+}
+
+function decodeUserOps(input: Hex.Hex): DecodedUserOp[] | null {
   if (typeof input !== "string" || input.length < 10) return null;
   const fn = HANDLE_OPS_BY_SELECTOR[input.slice(0, 10).toLowerCase()];
   if (!fn) return null;
@@ -361,11 +402,12 @@ export function fromEntryPointCalldata(
     const decoded = AbiFunction.decodeData(fn, input);
     if (!decoded) return null;
     const [ops] = decoded as unknown as [
-      readonly { sender: `0x${string}`; callData: Hex.Hex }[],
+      readonly { sender: `0x${string}`; nonce: bigint; callData: Hex.Hex }[],
       string,
     ];
     return ops.map((op) => ({
       sender: op.sender,
+      nonce: op.nonce,
       attribution: fromEmbeddedSuffix(op.callData),
     }));
   } catch {
@@ -374,9 +416,80 @@ export function fromEntryPointCalldata(
 }
 
 /**
- * Fetch a transaction and, if it is an EntryPoint `handleOps` bundle,
- * decode the attribution of every UserOperation in it. Returns null for
- * non-bundle transactions and on RPC errors — never throws.
+ * The operations of a `handleOps` transaction, with the attribution kept only
+ * for those the receipt shows were executed:
+ *
+ *   - the transaction's `to` is a known EntryPoint (otherwise null: the call
+ *     is not treated as a bundle at all),
+ *   - the transaction succeeded,
+ *   - the EntryPoint emitted exactly one UserOperationEvent per operation, in
+ *     order, each with the operation's `sender` and `nonce`,
+ *   - the operation's own event has success = true.
+ *
+ * The pairing is strict. A real EntryPoint reverts the whole bundle when any
+ * operation fails validation and emits one UserOperationEvent for every
+ * operation it runs, so the counts always match: they did in all 34,780
+ * successful handleOps transactions to the canonical EntryPoints on Celo
+ * Mainnet in the 90 days to 2026-11-26. If the events do not line up with the
+ * operations, the receipt does not describe this calldata and nothing is
+ * credited. Throws on RPC errors; callers catch.
+ */
+async function executedUserOps(
+  args: VerifyTxArgs,
+  tx: { input?: string; to?: string | null },
+): Promise<UserOpAttribution[] | null> {
+  const to = knownTarget(tx.to, ENTRY_POINT_ADDRESSES, args.entryPoints);
+  if (!to) return null;
+
+  const ops = decodeUserOps(tx.input as Hex.Hex);
+  if (!ops) return null;
+
+  const receipt = await args.client.getTransactionReceipt?.({ hash: args.hash });
+  const logs = receipt && succeeded(receipt.status) ? (receipt.logs ?? []) : [];
+
+  // The EntryPoint's UserOperationEvents, in the order it emitted them.
+  // data = abi.encode(uint256 nonce, bool success, uint256 actualGasCost,
+  //                   uint256 actualGasUsed); topics[2] = sender.
+  const events: { sender: string; nonce: bigint; ok: boolean }[] = [];
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== to) continue;
+    if (log.topics[0]?.toLowerCase() !== USER_OPERATION_EVENT_TOPIC) continue;
+    const sender = log.topics[2];
+    const data = log.data.slice(2);
+    // A malformed event can't be paired with its operation: credit nothing.
+    if (!sender || data.length < 128) return ops.map(unverified);
+    events.push({
+      sender: `0x${sender.slice(-40)}`.toLowerCase(),
+      nonce: BigInt(`0x${data.slice(0, 64)}`),
+      ok: BigInt(`0x${data.slice(64, 128)}`) !== 0n,
+    });
+  }
+
+  const paired =
+    events.length === ops.length &&
+    ops.every(
+      (op, i) =>
+        events[i]!.sender === op.sender.toLowerCase() &&
+        events[i]!.nonce === op.nonce,
+    );
+  if (!paired) return ops.map(unverified);
+  return ops.map((op, i) => ({
+    sender: op.sender,
+    attribution: events[i]!.ok ? op.attribution : null,
+  }));
+}
+
+function unverified(op: UserOpAttribution): UserOpAttribution {
+  return { sender: op.sender, attribution: null };
+}
+
+/**
+ * Fetch a transaction and, if it is a `handleOps` call to a known EntryPoint,
+ * return the attribution of every UserOperation in it. An operation is
+ * credited only when the receipt shows it was executed (see
+ * ENTRY_POINT_ADDRESSES and USER_OPERATION_EVENT_TOPIC); otherwise its
+ * attribution is null. Needs a client with `getTransactionReceipt`. Returns
+ * null for other transactions and on RPC errors — never throws.
  */
 export async function verifyUserOps(
   args: VerifyTxArgs,
@@ -384,10 +497,25 @@ export async function verifyUserOps(
   try {
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
-    return fromEntryPointCalldata(tx.input as Hex.Hex);
+    return await executedUserOps(args, tx);
   } catch {
     return null;
   }
+}
+
+/**
+ * The lower-cased `to` if it is one of the known deployments or the caller's
+ * extra ones, else null.
+ */
+function knownTarget(
+  to: string | null | undefined,
+  defaults: Record<string, string>,
+  extra: readonly string[] | undefined,
+): string | null {
+  if (typeof to !== "string") return null;
+  const lower = to.toLowerCase();
+  const known = [...Object.values(defaults), ...(extra ?? [])];
+  return known.some((a) => a.toLowerCase() === lower) ? lower : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,12 +690,8 @@ async function executedIntents(
   args: VerifyTxArgs,
   tx: { input?: string; to?: string | null },
 ): Promise<IntentAttribution[] | null> {
-  const to = typeof tx.to === "string" ? tx.to.toLowerCase() : null;
-  const known = [
-    ...Object.values(ORCHESTRATOR_ADDRESSES),
-    ...(args.orchestrators ?? []),
-  ].map((a) => a.toLowerCase());
-  if (to === null || !known.includes(to)) return null;
+  const to = knownTarget(tx.to, ORCHESTRATOR_ADDRESSES, args.orchestrators);
+  if (!to) return null;
 
   const intents = decodeIntents(tx.input as Hex.Hex);
   if (!intents) return null;

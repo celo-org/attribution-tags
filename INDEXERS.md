@@ -125,12 +125,38 @@ A real example: [`0x21a0cb…5924ea16`](https://celoscan.io/tx/0x21a0cb12d27e08a
 
 What to do:
 
-- Detect by selector, not only by address: v0.6 `handleOps(UserOperation[],address)` = `0x1fad948c` (canonical EntryPoint `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`), v0.7 `handleOps(PackedUserOperation[],address)` = `0x765e827f` (`0x0000000071727De22E5E9d8BAf0edAc6f37da032`).
+- Detect by selector **and** address: v0.6 `handleOps(UserOperation[],address)` = `0x1fad948c`, v0.7 and later `handleOps(PackedUserOperation[],address)` = `0x765e827f`, sent to a known EntryPoint — v0.6 `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`, v0.7 `0x0000000071727De22E5E9d8BAf0edAc6f37da032`, v0.8 `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108`, v0.9 `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (all deployed on Celo Mainnet and Celo Sepolia). The selector alone is not enough: anyone can send the same calldata to an EOA or to a contract of their own, and on Celo Mainnet a `handleOps` call to a precompile has succeeded.
 - ABI-decode the bundle, then for each op find the marker inside `callData` and decode the slice ending with it (the suffix is followed by ABI padding, so parse-from-end fails on the raw `callData`).
+- **Credit only an executed operation.** The calldata is a claim: it can name any account as `sender`, with a junk signature. The EntryPoint validates each operation (a validation failure reverts the whole bundle), runs it, and emits `UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)` (topic0 `0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f`). An operation whose calls reverted gets `success = false` and the transaction still succeeds, so the receipt status alone is not enough.
+- **Pair each operation with its own event, strictly.** In a transaction that succeeded, take the EntryPoint's own `UserOperationEvent` logs in order: there must be exactly one per operation, and the i-th must carry the i-th operation's `sender` and `nonce`. Credit the operation only if its event has `success = true`. If the counts differ or any pair does not match, the receipt does not describe the calldata: credit nothing in that transaction. (Across all 34,780 successful `handleOps` transactions to these EntryPoints on Celo Mainnet in the 90 days to 2026-11-26, the counts matched every time.)
 - Credit the op's `sender` — the smart account — not the outer `from`, which is the bundler. Emit one row per operation, not per transaction.
 
-The SDK does all of this: `fromEntryPointCalldata(input)` (offline) and `verifyUserOps({ client, hash })` return `[{ sender, attribution }]` per operation, and `verifyTx` falls back to the first tagged operation with `sender` set.
+The SDK does all of this in `verifyUserOps({ client, hash })`, which returns `[{ sender, attribution }]` per operation with a null attribution for any operation that did not execute, and in `verifyTx`, which falls back to the first tagged, executed operation with `sender` set. Both take an optional `entryPoints` list of extra deployments to accept. `fromEntryPointCalldata(input)` is the offline decode step only: its output is unverified.
 
+On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed operations remain:
+
+```sql
+SELECT t.hash, l.topic2 AS sender, bytearray_to_uint256(bytearray_substring(l.data, 1, 32)) AS nonce
+FROM celo.transactions t
+JOIN celo.logs l
+  ON l.tx_hash = t.hash
+ AND l.block_number = t.block_number
+ AND l.contract_address = t."to"
+ AND l.topic0 = 0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f
+WHERE t."to" IN (
+    0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789, -- v0.6
+    0x0000000071727De22E5E9d8BAf0edAc6f37da032, -- v0.7
+    0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108, -- v0.8
+    0x433709009B8330FDa32311DF1C2AFA402eD8D009  -- v0.9
+  )
+  AND t.success
+  AND bytearray_substring(t.data, 1, 4) IN (0x1fad948c, 0x765e827f)
+  AND varbinary_position(t.data, 0x80218021802180218021802180218021) > 0
+  -- success = true
+  AND bytearray_substring(l.data, 64, 1) = 0x01
+```
+
+Each row is an executed operation in a bundle that carries a marker somewhere; it is a candidate, not a credit. Decode the bundle and pair its operations with the EntryPoint's events as described above before crediting: in a bundle of several operations, the tagged one may not be the one that executed.
 
 ## Relayed intents (Porto-style EIP-7702 wallets)
 
@@ -148,7 +174,7 @@ What to do:
 
 The SDK does all of this in `verifyIntents({ client, hash })`, which returns `[{ sender, attribution }]` per intent with a null attribution for any intent that did not execute, and in `verifyTx`, which falls back to the first tagged, executed intent with `sender` set. `fromOrchestratorCalldata(input)` is the offline decode step only: its output is unverified.
 
-`verifyTx` and `verifyIntents` return `null` on RPC errors as well as for untagged transactions, and some public Celo RPCs drop calls under load. Retry, or use a dedicated RPC, before treating a `null` as untagged.
+`verifyTx`, `verifyUserOps` and `verifyIntents` return `null` on RPC errors as well as for untagged transactions, and some public Celo RPCs drop calls under load. Retry, or use a dedicated RPC, before treating a `null` as untagged.
 
 On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed intents remain:
 
@@ -263,7 +289,7 @@ Even if you're parsing in SQL, these can be useful for spot-checks and validatio
 
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
 - [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle and relayed-intent decoding)
-- [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
+- [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender` (`verifyUserOps` credits only executed operations; the offline decoder is unverified)
 - [`verifyIntents({ client, hash })`](sdk/src/index.ts) / [`fromOrchestratorCalldata(data)`](sdk/src/index.ts) — the intents of an `Orchestrator.execute` call with the account to credit; `verifyIntents` credits only executed intents, `fromOrchestratorCalldata` is the unverified offline decode
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 - [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository

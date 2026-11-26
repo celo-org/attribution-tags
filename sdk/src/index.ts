@@ -1,5 +1,5 @@
 import { Attribution } from "ox/erc8021";
-import { AbiFunction, Bytes, Hash as OxHash } from "ox";
+import { AbiEvent, AbiFunction, AbiParameters, Bytes, Hash as OxHash } from "ox";
 import type { Hex } from "ox";
 
 // Structural stand-ins for viem's Hash / PublicClient. viem is an
@@ -10,7 +10,24 @@ export type TxHash = `0x${string}`;
 export interface TxClient {
   getTransaction(args: {
     hash: TxHash;
-  }): Promise<{ input?: string } | null | undefined>;
+  }): Promise<{ input?: string; to?: string | null } | null | undefined>;
+  /**
+   * Needed only to verify relayed intents (Orchestrator.execute): an intent
+   * is credited only when the receipt shows it executed. viem's PublicClient
+   * provides it.
+   */
+  getTransactionReceipt?(args: { hash: TxHash }): Promise<
+    | {
+        status?: unknown;
+        logs?: readonly {
+          address: string;
+          topics: readonly string[];
+          data: string;
+        }[];
+      }
+    | null
+    | undefined
+  >;
 }
 
 export const ERC_8021_MARKER =
@@ -162,10 +179,11 @@ export interface DecodedSuffix {
   /** Schema 2 only: service (client) codes. */
   service?: string[];
   /**
-   * Set only when the suffix was decoded from an ERC-4337 UserOperation
-   * inside an EntryPoint `handleOps` bundle: the smart account that
+   * Set only when the suffix was decoded from inside a wrapped transaction:
+   * an ERC-4337 UserOperation in an EntryPoint `handleOps` bundle, or a
+   * signed intent in an Orchestrator `execute` call. It is the account that
    * produced the operation. Credit this address, not the outer tx `from`
-   * (which is the bundler).
+   * (which is the bundler or the relay).
    */
   sender?: `0x${string}`;
 }
@@ -219,6 +237,12 @@ export function fromDataSuffix(suffix: Hex.Hex): DecodedSuffix | null {
 export interface VerifyTxArgs {
   client: TxClient;
   hash: TxHash;
+  /**
+   * Extra Orchestrator deployments to accept for relayed intents, on top of
+   * `ORCHESTRATOR_ADDRESSES`. An `execute` call to any other address is not
+   * read.
+   */
+  orchestrators?: readonly string[];
 }
 
 export async function verifyTx(
@@ -235,9 +259,23 @@ export async function verifyTx(
     // middle of the outer input, not at the end. Fall back to the first
     // tagged operation in the bundle.
     const ops = fromEntryPointCalldata(input);
-    if (!ops) return null;
-    for (const op of ops) {
-      if (op.attribution) return { ...op.attribution, sender: op.sender };
+    if (ops) {
+      for (const op of ops) {
+        if (op.attribution) return { ...op.attribution, sender: op.sender };
+      }
+      return null;
+    }
+    // Relayed intents (Porto-style EIP-7702 wallets): a relay submits the
+    // account's signed intent through Orchestrator.execute, so the builder's
+    // suffix is on a call inside the intent. Fall back to the first tagged
+    // intent that the receipt shows was executed, credited to the account
+    // that signed it.
+    const intents = await executedIntents(args, tx);
+    if (!intents) return null;
+    for (const intent of intents) {
+      if (intent.attribution) {
+        return { ...intent.attribution, sender: intent.sender };
+      }
     }
     return null;
   } catch {
@@ -347,6 +385,270 @@ export async function verifyUserOps(
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
     return fromEntryPointCalldata(tx.input as Hex.Hex);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Relayed intents (Porto-style EIP-7702 wallets, e.g. Altana)
+//
+// The account is an EIP-7702 delegated EOA. It signs an intent (its list of
+// calls, a nonce, the fee terms) and a relay submits it by calling
+// Orchestrator.execute(bytes encodedIntent). The outer `from` is the relay
+// and the outer input never ends with the marker: the builder's suffix is on
+// a call inside the intent's executionData, followed by the intent's other
+// fields.
+//
+// Only the calls in executionData are read; the intent's other fields (the
+// relay's payment amounts and signatures) are never scanned.
+//
+// Calldata alone proves nothing: anyone can send `execute` calldata holding a
+// made-up intent that names any account. The calls are the account's own only
+// once the Orchestrator has checked the account's EIP-712 signature and run
+// them, which it reports with an IntentExecuted event. So:
+//
+//   - fromOrchestratorCalldata (offline) decodes and returns what the calldata
+//     claims. Its output is UNVERIFIED.
+//   - verifyTx / verifyIntents credit an intent only when the transaction
+//     succeeded, went to a known Orchestrator deployment, and that contract
+//     emitted IntentExecuted for the same account and nonce with no error.
+//
+// The intent layout is that of Orchestrator 0.5.x, the version deployed on
+// Celo.
+// ---------------------------------------------------------------------------
+
+/**
+ * Orchestrator deployments whose intents verifyTx / verifyIntents accept.
+ * Pass `orchestrators` to accept others.
+ */
+export const ORCHESTRATOR_ADDRESSES = {
+  /** Celo Mainnet (42220), Orchestrator 0.5.5 */
+  celo: "0xAF140d0416A994Aebb3fA6212B16CE6700f09751",
+  /** Celo Sepolia (11142220), Orchestrator 0.5.5 */
+  celoSepolia: "0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9",
+} as const;
+
+const INTENT_EXECUTED = AbiEvent.from(
+  "event IntentExecuted(address indexed eoa, uint256 indexed nonce, bool incremented, bytes4 err)",
+);
+
+/** topic0 of IntentExecuted(address,uint256,bool,bytes4). */
+export const INTENT_EXECUTED_TOPIC = AbiEvent.getSelector(INTENT_EXECUTED);
+
+const ORCHESTRATOR_EXECUTE = AbiFunction.from(
+  "function execute(bytes encodedIntent)",
+);
+
+const ORCHESTRATOR_EXECUTE_BATCH = AbiFunction.from(
+  "function execute(bytes[] encodedIntents)",
+);
+
+/** Selectors of the Orchestrator entry points that carry signed intents. */
+export const ORCHESTRATOR_SELECTORS = {
+  /** execute(bytes encodedIntent) */
+  execute: AbiFunction.getSelector(ORCHESTRATOR_EXECUTE),
+  /** execute(bytes[] encodedIntents) */
+  executeBatch: AbiFunction.getSelector(ORCHESTRATOR_EXECUTE_BATCH),
+} as const;
+
+const INTENT = AbiParameters.from(
+  "(address eoa, bytes executionData, uint256 nonce, address payer, address paymentToken, uint256 paymentMaxAmount, uint256 combinedGas, bytes[] encodedPreCalls, bytes[] encodedFundTransfers, address settler, uint256 expiry, bool isMultichain, address funder, bytes funderSignature, bytes settlerContext, uint256 paymentAmount, address paymentRecipient, bytes signature, bytes paymentSignature, address supportedAccountImplementation)",
+);
+
+const INTENT_CALLS = AbiParameters.from(
+  "(address to, uint256 value, bytes data)[]",
+);
+
+export interface IntentAttribution {
+  /**
+   * The account the intent names as its signer — the address to credit, once
+   * the intent is known to have executed.
+   */
+  sender: `0x${string}`;
+  /**
+   * Decoded suffix from the intent's calls, or null if untagged. From
+   * verifyIntents it is also null for an intent that did not execute.
+   */
+  attribution: DecodedSuffix | null;
+}
+
+interface DecodedIntent extends IntentAttribution {
+  nonce: bigint;
+}
+
+function fromEncodedIntent(encoded: Hex.Hex): DecodedIntent {
+  const [intent] = AbiParameters.decode(INTENT, encoded) as unknown as [
+    { eoa: `0x${string}`; executionData: Hex.Hex; nonce: bigint },
+  ];
+  let attribution: DecodedSuffix | null = null;
+  if (intent.executionData !== "0x") {
+    const [calls] = AbiParameters.decode(
+      INTENT_CALLS,
+      intent.executionData,
+    ) as unknown as [readonly { data: Hex.Hex }[]];
+    // A wallet tags the end of what it executes, so the last tagged call wins
+    // when a batch carries more than one.
+    for (let i = calls.length - 1; i >= 0 && !attribution; i--) {
+      attribution = fromEmbeddedSuffix(calls[i]!.data);
+    }
+  }
+  return { sender: intent.eoa, nonce: intent.nonce, attribution };
+}
+
+/**
+ * Decode an Orchestrator `execute` calldata into one entry per intent.
+ * Returns null if the input is not an Orchestrator `execute` call or cannot
+ * be decoded. Pure — no RPC.
+ *
+ * UNVERIFIED: this reads what the calldata claims. It does not know whether
+ * the transaction went to an Orchestrator, whether the account's signature
+ * was valid, or whether the intent ran, and anyone can send calldata naming
+ * any account. Use verifyIntents / verifyTx to credit a `sender`, or apply
+ * the same checks yourself (see INDEXERS.md).
+ */
+export function fromOrchestratorCalldata(
+  input: Hex.Hex,
+): IntentAttribution[] | null {
+  const intents = decodeIntents(input);
+  if (!intents) return null;
+  return intents.map(({ sender, attribution }) => ({ sender, attribution }));
+}
+
+function decodeIntents(input: Hex.Hex): DecodedIntent[] | null {
+  if (typeof input !== "string" || input.length < 10) return null;
+  const selector = input.slice(0, 10).toLowerCase();
+  try {
+    if (selector === ORCHESTRATOR_SELECTORS.execute) {
+      const [encoded] = AbiFunction.decodeData(
+        ORCHESTRATOR_EXECUTE,
+        input,
+      ) as unknown as [Hex.Hex];
+      return [fromEncodedIntent(encoded)];
+    }
+    if (selector === ORCHESTRATOR_SELECTORS.executeBatch) {
+      const [encoded] = AbiFunction.decodeData(
+        ORCHESTRATOR_EXECUTE_BATCH,
+        input,
+      ) as unknown as [readonly Hex.Hex[]];
+      return encoded.map(fromEncodedIntent);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function succeeded(status: unknown): boolean {
+  return status === "success" || status === "0x1" || status === 1 || status === 1n;
+}
+
+/**
+ * The intents of an Orchestrator `execute` transaction, with the attribution
+ * kept only for those the receipt shows were executed:
+ *
+ *   - the transaction's `to` is a known Orchestrator deployment (otherwise
+ *     null: the call is not treated as an Orchestrator call at all),
+ *   - the transaction succeeded,
+ *   - that contract emitted IntentExecuted with the same account and nonce,
+ *     `incremented` true and `err` zero, as that intent's own log (intents
+ *     and logs are paired in order, each log used once).
+ *
+ * An intent that fails any of the last two is returned with a null
+ * attribution. If any intent has no log of its own, none is credited. Throws
+ * on RPC errors; callers catch.
+ */
+async function executedIntents(
+  args: VerifyTxArgs,
+  tx: { input?: string; to?: string | null },
+): Promise<IntentAttribution[] | null> {
+  const to = typeof tx.to === "string" ? tx.to.toLowerCase() : null;
+  const known = [
+    ...Object.values(ORCHESTRATOR_ADDRESSES),
+    ...(args.orchestrators ?? []),
+  ].map((a) => a.toLowerCase());
+  if (to === null || !known.includes(to)) return null;
+
+  const intents = decodeIntents(tx.input as Hex.Hex);
+  if (!intents) return null;
+
+  const receipt = await args.client.getTransactionReceipt?.({ hash: args.hash });
+  const logs = receipt && succeeded(receipt.status) ? (receipt.logs ?? []) : [];
+
+  // The Orchestrator's IntentExecuted logs, in the order it emitted them.
+  const executed: { eoa: string; nonce: bigint; ok: boolean }[] = [];
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== to) continue;
+    const [topic0, eoa, nonce] = log.topics;
+    if (topic0?.toLowerCase() !== INTENT_EXECUTED_TOPIC) continue;
+    if (!eoa || !nonce) continue;
+    // data = abi.encode(bool incremented, bytes4 err)
+    const data = log.data.slice(2);
+    const ok =
+      data.length >= 128 &&
+      BigInt(`0x${data.slice(0, 64)}`) !== 0n &&
+      data.slice(64, 72) === "00000000";
+    executed.push({
+      eoa: `0x${eoa.slice(-40)}`.toLowerCase(),
+      nonce: BigInt(nonce),
+      ok,
+    });
+  }
+
+  // Pair each intent with ITS OWN log, in order. The Orchestrator runs the
+  // intents in the order given and emits exactly one IntentExecuted for each,
+  // failed or not, so intent i's log comes after intent i-1's. A log is used
+  // once and never looked at again: an intent that failed cannot borrow the
+  // success of a later intent carrying the same account and nonce (a forged
+  // copy placed in front of the genuine one in an execute(bytes[]) batch).
+  //
+  // Logs in between are skipped rather than counted: an intent's pre-calls
+  // (a new account's key set-up rides along with its first transaction) each
+  // emit their own IntentExecuted before the intent's, so one intent can
+  // account for several logs.
+  const results: boolean[] = [];
+  let next = 0;
+  let complete = true;
+  for (const intent of intents) {
+    const sender = intent.sender.toLowerCase();
+    let at = -1;
+    for (let k = next; k < executed.length; k++) {
+      if (executed[k]!.eoa === sender && executed[k]!.nonce === intent.nonce) {
+        at = k;
+        break;
+      }
+    }
+    if (at === -1) {
+      // An intent with no log of its own means the logs do not describe this
+      // calldata. Credit nothing.
+      complete = false;
+      break;
+    }
+    results.push(executed[at]!.ok);
+    next = at + 1;
+  }
+
+  return intents.map((intent, i) => ({
+    sender: intent.sender,
+    attribution: complete && results[i] ? intent.attribution : null,
+  }));
+}
+
+/**
+ * Fetch a transaction and, if it is an `execute` call to a known
+ * Orchestrator, return the attribution of every intent in it. An intent is
+ * credited only when the receipt shows it executed (see ORCHESTRATOR_ADDRESSES
+ * and INTENT_EXECUTED_TOPIC); otherwise its attribution is null. Needs a
+ * client with `getTransactionReceipt`. Returns null for other transactions
+ * and on RPC errors — never throws.
+ */
+export async function verifyIntents(
+  args: VerifyTxArgs,
+): Promise<IntentAttribution[] | null> {
+  try {
+    const tx = await args.client.getTransaction({ hash: args.hash });
+    if (!tx?.input) return null;
+    return await executedIntents(args, tx);
   } catch {
     return null;
   }

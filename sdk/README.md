@@ -91,6 +91,34 @@ fromEntryPointCalldata(tx.input); // same, offline, from raw calldata
 
 Credit `sender`, not the transaction's `from` — `from` is the bundler.
 
+### Relayed intents (Porto-style EIP-7702 wallets)
+
+Some wallets are EIP-7702 accounts that sign an *intent* (their list of calls) and let a relay submit it, for example Altana wallets. The on-chain transaction is the relay's call to `Orchestrator.execute(bytes encodedIntent)`, and the app's suffix is on a call inside the signed intent. `verifyTx` handles this automatically: if the outer input carries no tag and is not a `handleOps` bundle, it decodes the intent and returns the tagged call's codes, with `sender` set to the account that signed — but only for an intent the receipt shows was executed. To see every intent:
+
+```ts
+import { verifyIntents, fromOrchestratorCalldata } from "@celo/attribution-tags";
+
+await verifyIntents({ client, hash });
+// → [{ sender: "0xb244…", attribution: { codes: ["celo_d6a0b77183c8"], schemaId: 0 } }]
+//   or null if the tx is not an Orchestrator execute call
+
+fromOrchestratorCalldata(tx.input); // offline, from raw calldata — UNVERIFIED, see below
+```
+
+Credit `sender`, not the transaction's `from` — `from` is the relay.
+
+**What is verified.** Calldata alone proves nothing: anyone can send `execute` calldata holding a made-up intent that names any account. `verifyTx` and `verifyIntents` therefore credit an intent only when all of these hold, and report it as untagged (`attribution: null`) otherwise:
+
+- the transaction's `to` is a known Orchestrator deployment — `ORCHESTRATOR_ADDRESSES` (Celo Mainnet and Celo Sepolia), plus any you pass as `orchestrators: [...]`. An `execute` call to any other address is not read at all;
+- the transaction succeeded;
+- that contract emitted `IntentExecuted` for the same account and nonce, with `incremented` true and `err` zero. The Orchestrator emits it after checking the account's EIP-712 signature and running the calls; a rejected intent gets a non-zero `err` without the transaction reverting.
+
+Each intent is judged by its own log. The Orchestrator emits one `IntentExecuted` per intent, in order, so intents and logs are paired in order and a log is used once: in an `execute(bytes[])` batch, a forged intent cannot borrow the success of a genuine one that carries the same account and nonce. Logs in between are skipped, because an account's pre-calls (the key set-up that rides along with a new account's first transaction) emit their own `IntentExecuted` before the intent's. If any intent has no log of its own, none is credited.
+
+This needs a client with `getTransactionReceipt` (viem's `PublicClient` has it). Within an executed intent only the calls are read, never the fields a relay fills in, so a relay cannot add or change a tag.
+
+`fromOrchestratorCalldata` does none of this: it returns what the calldata claims. Use it for debugging, or as the decode step of an indexer that applies the same three checks itself.
+
 ### Decode a suffix offline
 
 ```ts
@@ -173,6 +201,8 @@ withAttribution(code | codes): (client) => client   // viem wallet-client extens
 fromDataSuffix(data: Hex): DecodedSuffix | null
 verifyTx({ client, hash }): Promise<DecodedSuffix | null>
 verifyUserOps({ client, hash }): Promise<UserOpAttribution[] | null>   // ERC-4337 bundles
+verifyIntents({ client, hash }): Promise<IntentAttribution[] | null>   // relayed intents (Orchestrator.execute)
+fromOrchestratorCalldata(data: Hex): IntentAttribution[] | null        // offline decode, unverified
 fromEntryPointCalldata(data: Hex): UserOpAttribution[] | null          // offline variant
 codeFromHostname(hostname: string): string  // → "celo_" + 12 hex chars
 codeFromRepo(repo: string): string          // → "celo_" + 12 hex chars ("owner/repo" or github.com URL)
@@ -183,7 +213,7 @@ interface DecodedSuffix {
   app?: string;         // Schema 2 only
   wallet?: string;      // Schema 2 only
   service?: string[];   // Schema 2 only
-  sender?: `0x${string}`; // ERC-4337 only: the smart account to credit
+  sender?: `0x${string}`; // ERC-4337 and relayed intents only: the account to credit
 }
 
 interface UserOpAttribution {
@@ -191,7 +221,15 @@ interface UserOpAttribution {
   attribution: DecodedSuffix | null;  // null if that op is untagged
 }
 
+interface IntentAttribution {
+  sender: `0x${string}`;              // account the intent names as its signer
+  attribution: DecodedSuffix | null;  // null if untagged, or (verifyIntents) if the intent did not execute
+}
+
 ENTRY_POINT_ADDRESSES: { v0_6: `0x${string}`; v0_7: `0x${string}` }  // canonical EntryPoints
+ORCHESTRATOR_SELECTORS: { execute: `0x${string}`; executeBatch: `0x${string}` }  // Orchestrator entry points
+ORCHESTRATOR_ADDRESSES: { celo: `0x${string}`; celoSepolia: `0x${string}` }      // deployments verifyTx accepts
+INTENT_EXECUTED_TOPIC: `0x${string}`  // topic0 of IntentExecuted(address,uint256,bool,bytes4)
 
 type AttributionTagSuffix = Hex  // alias for the suffix return type
 ERC_8021_MARKER: "0x80218021802180218021802180218021"
@@ -201,7 +239,7 @@ ERC_8021_MARKER: "0x80218021802180218021802180218021"
 
 `withAttribution(code)` returns a viem `extend` function. It validates the code once at construction (throws on an invalid code, before any transaction is sent) and wraps `sendTransaction`, `sendTransactionSync`, `writeContract` and `writeContractSync` when the client has them. The SDK still doesn't import viem: the extension is typed structurally, so your client keeps viem's own types.
 
-`verifyTx` never throws — RPC errors return `null`. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations.
+`verifyTx` never throws — RPC errors return `null`, the same answer as an untagged transaction. Public RPCs can drop calls under load, so retry, or use a dedicated RPC, before treating a `null` as untagged. For ERC-4337 bundles (`handleOps` on EntryPoint v0.6 or v0.7, detected by selector so custom EntryPoint deployments work too) it falls back to decoding each UserOperation's `callData` and returns the first tagged one with its `sender`. `verifyUserOps` returns all operations. For relayed intents (`execute` on a known Orchestrator deployment) it falls back the same way to the first tagged intent that the receipt shows was executed, with `sender` set to the account that signed it; `verifyIntents` returns all of them. Both take an optional `orchestrators` list of extra deployments to accept.
 
 `codeFromHostname` derives a per-app code from a hostname (used by MiniPay mini apps to self-attribute without a registration step). Algorithm: lowercase → strip leading `www.` → SHA-256 → first 6 bytes hex (12 chars) → `celo_` prefix. Same input → same code, every time.
 

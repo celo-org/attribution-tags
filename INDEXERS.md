@@ -131,6 +131,46 @@ What to do:
 
 The SDK does all of this: `fromEntryPointCalldata(input)` (offline) and `verifyUserOps({ client, hash })` return `[{ sender, attribution }]` per operation, and `verifyTx` falls back to the first tagged operation with `sender` set.
 
+
+## Relayed intents (Porto-style EIP-7702 wallets)
+
+The tail-of-input assumption also misses transactions from wallets that sign an intent and let a relay submit it (EIP-7702 accounts on the Porto / Ithaca stack, for example Altana wallets). The relay's EOA calls the Orchestrator's `execute(bytes encodedIntent)`, and the app's tagged calldata is the `data` of a call inside the intent's `executionData`, followed by the intent's other fields, so the outer input never ends with the marker.
+
+A real example: [`0x5131fd…4d410aea`](https://celoscan.io/tx/0x5131fd5b5d14012e6a97a86a6cb4608264a52eebc1f67bf1e47a7a814d410aea) — `to` is the Orchestrator, the outer `from` is a relay, the outer `fromDataSuffix` is `null`, and the calls inside the intent carry `celo_d6a0b77183c8`.
+
+What to do:
+
+- Detect by selector **and** address: `execute(bytes)` = `0x09c5eabe`, or the batch form `execute(bytes[])` = `0x44471415`, sent to a known Orchestrator deployment — `0xAF140d0416A994Aebb3fA6212B16CE6700f09751` on Celo Mainnet, `0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9` on Celo Sepolia. The selector alone is not enough: anyone can send the same calldata to an EOA or to a contract of their own.
+- ABI-decode the argument as the intent tuple (first three fields: `address eoa`, `bytes executionData`, `uint256 nonce`), then decode `executionData` as `(address to, uint256 value, bytes data)[]` and look for the marker in each call's `data`. Read only those calls, never the intent's later fields (payment amounts, the relay's signatures).
+- **Credit only an executed intent.** The calldata is a claim: it can name any wallet as `eoa`, with a junk signature. The Orchestrator checks the wallet's EIP-712 signature, runs the calls, and emits `IntentExecuted(address indexed eoa, uint256 indexed nonce, bool incremented, bytes4 err)` (topic0 `0x23a3c1343409f01965611c9c4c8b99e36d7b09ca22516507d5486ce0584379b8`). Require, in a transaction that succeeded, a log from the Orchestrator itself with the same `eoa` and `nonce`, `incremented = true` and `err = 0x00000000`. A rejected intent gets a non-zero `err` and the transaction still succeeds, so the receipt status alone is not enough either.
+- **Pair each intent with its own log, in order.** The Orchestrator runs the intents in the order given and emits exactly one `IntentExecuted` per intent, failed or not. Walk the intents and the Orchestrator's `IntentExecuted` logs together: for each intent take the next log with its `eoa` and `nonce`, judge the intent by that log alone, and never reuse a log. Matching by `eoa` and `nonce` without order is not enough: an `execute(bytes[])` batch can hold a forged intent and a genuine one with the same pair, and the forged one (whose own log has `err != 0`) would borrow the genuine one's success. Do not require the counts to be equal either: a pre-call emits its own `IntentExecuted` before its intent's, so a new account's first transaction is one intent and two logs ([example](https://celo-sepolia.blockscout.com/tx/0x81c741ef7d80f6cfab83d9c5e085451ce453c10834aefa4086d747ba3c4aa8cf)). Skip those. If an intent has no log of its own, credit nothing in that transaction.
+- Credit the intent's `eoa` — the wallet that signed — not the outer `from`, which is the relay. Emit one row per intent, not per transaction.
+
+The SDK does all of this in `verifyIntents({ client, hash })`, which returns `[{ sender, attribution }]` per intent with a null attribution for any intent that did not execute, and in `verifyTx`, which falls back to the first tagged, executed intent with `sender` set. `fromOrchestratorCalldata(input)` is the offline decode step only: its output is unverified.
+
+`verifyTx` and `verifyIntents` return `null` on RPC errors as well as for untagged transactions, and some public Celo RPCs drop calls under load. Retry, or use a dedicated RPC, before treating a `null` as untagged.
+
+On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed intents remain:
+
+```sql
+SELECT t.hash, l.topic1 AS eoa, l.topic2 AS nonce
+FROM celo.transactions t
+JOIN celo.logs l
+  ON l.tx_hash = t.hash
+ AND l.block_number = t.block_number
+ AND l.contract_address = t."to"
+ AND l.topic0 = 0x23a3c1343409f01965611c9c4c8b99e36d7b09ca22516507d5486ce0584379b8
+WHERE t."to" = 0xAF140d0416A994Aebb3fA6212B16CE6700f09751
+  AND t.success
+  AND bytearray_substring(t.data, 1, 4) IN (0x09c5eabe, 0x44471415)
+  AND varbinary_position(t.data, 0x80218021802180218021802180218021) > 0
+  -- incremented = true, err = 0
+  AND bytearray_substring(l.data, 32, 1) = 0x01
+  AND bytearray_substring(l.data, 33, 4) = 0x00000000
+```
+
+Each row is a successful `IntentExecuted` in a transaction that carries a marker somewhere; it is a candidate, not a credit. Decode the transaction's intents and pair them with all of the Orchestrator's `IntentExecuted` logs in order, as described above, before crediting: the marker can sit in a field outside the calls, a batch can hold intents that did not execute, and a pre-call's log is not an intent's.
+
 ## The hostname-derivation algorithm
 
 For MiniPay-style auto-derived codes, each app's code is derived deterministically from its hostname:
@@ -222,8 +262,9 @@ Your parser should split on `,` regardless of which shape arrives. Each comma-se
 Even if you're parsing in SQL, these can be useful for spot-checks and validation:
 
 - [`fromDataSuffix(input)`](sdk/src/index.ts) — decode any calldata to `{ codes, schemaId } | null`
-- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle decoding)
+- [`verifyTx({ client, hash })`](sdk/src/index.ts) — fetch a tx and decode in one call (falls back to ERC-4337 bundle and relayed-intent decoding)
 - [`verifyUserOps({ client, hash })`](sdk/src/index.ts) / [`fromEntryPointCalldata(data)`](sdk/src/index.ts) — decode every UserOperation in a `handleOps` bundle, with its `sender`
+- [`verifyIntents({ client, hash })`](sdk/src/index.ts) / [`fromOrchestratorCalldata(data)`](sdk/src/index.ts) — the intents of an `Orchestrator.execute` call with the account to credit; `verifyIntents` credits only executed intents, `fromOrchestratorCalldata` is the unverified offline decode
 - [`codeFromHostname(hostname)`](sdk/src/index.ts) — produce the expected code for a hostname
 - [`codeFromRepo("owner/repo")`](sdk/src/index.ts) — produce the code the Celo Builders platform assigns for a GitHub repository
 

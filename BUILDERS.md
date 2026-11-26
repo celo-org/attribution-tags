@@ -233,7 +233,7 @@ console.log(result) // { codes: ["celo_b7k3p9da"], schemaId: 0 }
 
 `verifyTx` returns `null` (never throws) if the marker isn't there. If it returns `null` for a tx you expected to be tagged, your suffix didn't make it onto the wire — most likely you set `data: code` instead of `data: toDataSuffix(code)`.
 
-**Smart-account (ERC-4337) wallets.** If your users have smart-contract wallets, the transaction you see on-chain is the bundler's call to the EntryPoint (`handleOps`), and your suffix sits inside the UserOperation's `callData` rather than at the end of the outer input. `verifyTx` decodes `handleOps` bundles (EntryPoint v0.6 and v0.7) automatically and adds a `sender` field — the smart account that produced the operation:
+**Smart-account (ERC-4337) wallets.** If your users have smart-contract wallets, the transaction you see on-chain is the bundler's call to the EntryPoint (`handleOps`), and your suffix sits inside the UserOperation's `callData` rather than at the end of the outer input. `verifyTx` decodes `handleOps` bundles (EntryPoint v0.6 to v0.9) automatically and adds a `sender` field — the smart account that produced the operation. It credits an operation only once it has executed: the transaction succeeded on a known EntryPoint and the EntryPoint reported your operation as successful. An operation whose calls reverted shows as untagged:
 
 ```ts
 await verifyTx({ client, hash })

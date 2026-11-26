@@ -40,6 +40,8 @@ If your store keeps calldata as a hex *string* (many non-Dune indexers do), the 
 
 The marker is `0x80218021` repeated 8 times (16 bytes total, 32 hex chars). Anywhere it appears at the very end of the calldata qualifies. False-positive rate is functionally zero — random calldata ending in this exact 16-byte sequence is astronomically unlikely.
 
+**Except for wrapper calls.** Leave `handleOps` calls to an EntryPoint and `execute` calls to an Orchestrator out of this tail rule, and read them as described in [ERC-4337 bundles](#erc-4337-bundles-smart-account-wallets) and [Relayed intents](#relayed-intents-porto-style-eip-7702-wallets). Their last bytes are the wrapper's own encoding — the last operation's signature, or the intent's payment signature — which one participant can make end with the marker whether or not anything executed. `verifyTx` never reads the end of such a call.
+
 ## Decoding logic
 
 Read backwards from the end of `tx.input`:
@@ -119,7 +121,7 @@ Two real transactions you can plug into your parser to test it. Both have status
 
 ## ERC-4337 bundles (smart-account wallets)
 
-The tail-of-input assumption misses every transaction sent from a smart-contract wallet. The bundler calls the EntryPoint's `handleOps`, and the app's tagged calldata is inside each UserOperation's `callData` (usually as the `bytes` argument of the account's `execute(address,uint256,bytes)`, zero-padded to 32 bytes), so the outer input never ends with the marker.
+The tail-of-input assumption misses every transaction sent from a smart-contract wallet. The bundler calls the EntryPoint's `handleOps`, and the app's tagged calldata is inside each UserOperation's `callData` (usually as the `bytes` argument of the account's `execute(address,uint256,bytes)`, zero-padded to 32 bytes), so the app's tag is in the middle of the outer input, not at its end. The end of the input is the last operation's `signature`, which the EntryPoint does not check, so it can end with the marker too: never read it as a tag.
 
 A real example: [`0x21a0cb…5924ea16`](https://celoscan.io/tx/0x21a0cb12d27e08a3b403edbfb6fa46b5392612ecdb91cabf0e87c40e5924ea16) — `to` is EntryPoint v0.6, the outer `fromDataSuffix` is `null`, and the single UserOperation carries `celo_5d5a7df8d3aa`.
 
@@ -136,7 +138,7 @@ The SDK does all of this in `verifyUserOps({ client, hash })`, which returns `[{
 On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed operations remain:
 
 ```sql
-SELECT t.hash, l.topic2 AS sender, bytearray_to_uint256(bytearray_substring(l.data, 1, 32)) AS nonce
+SELECT t.hash, bytearray_substring(l.topic2, 13, 20) AS sender, bytearray_to_uint256(bytearray_substring(l.data, 1, 32)) AS nonce
 FROM celo.transactions t
 JOIN celo.logs l
   ON l.tx_hash = t.hash
@@ -160,7 +162,7 @@ Each row is an executed operation in a bundle that carries a marker somewhere; i
 
 ## Relayed intents (Porto-style EIP-7702 wallets)
 
-The tail-of-input assumption also misses transactions from wallets that sign an intent and let a relay submit it (EIP-7702 accounts on the Porto / Ithaca stack, for example Altana wallets). The relay's EOA calls the Orchestrator's `execute(bytes encodedIntent)`, and the app's tagged calldata is the `data` of a call inside the intent's `executionData`, followed by the intent's other fields, so the outer input never ends with the marker.
+The tail-of-input assumption also misses transactions from wallets that sign an intent and let a relay submit it (EIP-7702 accounts on the Porto / Ithaca stack, for example Altana wallets). The relay's EOA calls the Orchestrator's `execute(bytes encodedIntent)`, and the app's tagged calldata is the `data` of a call inside the intent's `executionData`, followed by the intent's other fields, so the app's tag is in the middle of the outer input, not at its end. The end of the input is the intent's `paymentSignature`, which the relay fills in and the wallet does not sign, so a marker there says nothing about the wallet: never read it as a tag.
 
 A real example: [`0x5131fd…4d410aea`](https://celoscan.io/tx/0x5131fd5b5d14012e6a97a86a6cb4608264a52eebc1f67bf1e47a7a814d410aea) — `to` is the Orchestrator, the outer `from` is a relay, the outer `fromDataSuffix` is `null`, and the calls inside the intent carry `celo_d6a0b77183c8`.
 
@@ -179,7 +181,7 @@ The SDK does all of this in `verifyIntents({ client, hash })`, which returns `[{
 On Dune, select the candidates from the transactions table and join the event from the logs table, so that only executed intents remain:
 
 ```sql
-SELECT t.hash, l.topic1 AS eoa, l.topic2 AS nonce
+SELECT t.hash, bytearray_substring(l.topic1, 13, 20) AS eoa, bytearray_to_uint256(l.topic2) AS nonce
 FROM celo.transactions t
 JOIN celo.logs l
   ON l.tx_hash = t.hash

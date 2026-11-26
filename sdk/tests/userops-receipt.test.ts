@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ENTRY_POINT_ADDRESSES,
   USER_OPERATION_EVENT_TOPIC,
+  fromDataSuffix,
   fromEntryPointCalldata,
   toDataSuffix,
   verifyTx,
@@ -34,6 +35,7 @@ import {
   UNTAGGED_CALL,
   bundle,
   op,
+  signatureEndingWith,
   taggedCall,
   userOpEvent,
 } from "./helpers/userops.js";
@@ -192,6 +194,13 @@ describe("ERC-4337, a forged bundle is not credited", () => {
     expect(await verify(c)).toBeNull();
   });
 
+  it("a malformed event credits nothing, even when skipping it would make the counts match", async () => {
+    const truncated = { ...userOpEvent({ address: EP, sender: SENDER_B }), data: "0x" };
+    const c = client(TAGGED_A, EP, ok([truncated, ranA]));
+    expect(await verify(c)).toBeNull();
+    expect(await ops(c)).toEqual([{ sender: SENDER_A, attribution: null }]);
+  });
+
   it("a truncated event does not count (never throws)", async () => {
     const log = { ...ranA, data: ranA.data.slice(0, 66) };
     expect(await verify(client(TAGGED_A, EP, ok([log])))).toBeNull();
@@ -238,9 +247,10 @@ describe("ERC-4337, each op is paired with its own event, strictly", () => {
     expect(await verify(c)).toBeNull();
   });
 
-  it("a forged copy in front of the genuine op cannot borrow its event", async () => {
+  it("a forged copy in front of the genuine op (two ops, one event): nothing is credited", async () => {
     // A real EntryPoint reverts the whole bundle when an op fails validation,
-    // so a forged copy can only appear next to a single genuine event.
+    // so a forged copy can only appear next to a single genuine event. The
+    // count check rejects it; positional pairing is pinned by the next test.
     const input = bundle([op(SENDER_A, taggedCall("celo_attacker1")), op(SENDER_A, UNTAGGED_CALL)]);
     expect(await verify(client(input, EP, ok([ranA])))).toBeNull();
   });
@@ -280,6 +290,46 @@ describe("ERC-4337, each op is paired with its own event, strictly", () => {
       ok([transfer, ranA, transfer, userOpEvent({ address: EP, sender: SENDER_B }), transfer]),
     );
     expect(await verify(c)).toEqual({ codes: [CODE], schemaId: 0, sender: SENDER_B });
+  });
+});
+
+describe("ERC-4337, the end of a handleOps input is never read as a tag", () => {
+  // The last bytes of a handleOps input are the last op's signature, which
+  // the EntryPoint passes to the account unchecked. A participant can make it
+  // end with the marker.
+  const victimThenAttacker = bundle([
+    op(SENDER_A, taggedCall(CODE)),
+    op(SENDER_B, UNTAGGED_CALL, 1n, signatureEndingWith("celo_attacker1")),
+  ]);
+  const bothRan = (attackerOk: boolean) =>
+    ok([ranA, userOpEvent({ address: EP, sender: SENDER_B, success: attackerOk })]);
+
+  it("control: the input does end with the attacker's tag", () => {
+    expect(fromDataSuffix(victimThenAttacker)).toEqual({ codes: ["celo_attacker1"], schemaId: 0 });
+  });
+
+  it("the executed op's own tag is credited, not the tail", async () => {
+    for (const attackerOk of [true, false]) {
+      expect(await verify(client(victimThenAttacker, EP, bothRan(attackerOk)))).toEqual(credited);
+    }
+  });
+
+  it("a reverted transaction credits nobody, tail included", async () => {
+    const c = client(victimThenAttacker, EP, { status: "reverted", logs: [] });
+    expect(await verify(c)).toBeNull();
+  });
+
+  it("a client that cannot fetch receipts credits nobody, tail included", async () => {
+    expect(await verify(client(victimThenAttacker, EP, "none"))).toBeNull();
+  });
+
+  it("a handleOps call to a known EntryPoint that does not decode is not read either", async () => {
+    const garbage = ("0x765e827f" + "ff".repeat(64) + toDataSuffix("celo_attacker1").slice(2)) as `0x${string}`;
+    expect(fromEntryPointCalldata(garbage)).toBeNull();
+    expect(await verify(client(garbage, EP, ok([])))).toBeNull();
+    // control: the same bytes sent anywhere else are an ordinary tagged tx
+    const other = "0x4444444444444444444444444444444444444444";
+    expect(await verify(client(garbage, other, ok([])))).toEqual({ codes: ["celo_attacker1"], schemaId: 0 });
   });
 });
 

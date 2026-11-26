@@ -12,9 +12,9 @@ export interface TxClient {
     hash: TxHash;
   }): Promise<{ input?: string; to?: string | null } | null | undefined>;
   /**
-   * Needed only to verify relayed intents (Orchestrator.execute): an intent
-   * is credited only when the receipt shows it executed. viem's PublicClient
-   * provides it.
+   * Needed to verify ERC-4337 bundles (handleOps) and relayed intents
+   * (Orchestrator.execute): an operation or intent is credited only when the
+   * receipt shows it executed. viem's PublicClient provides it.
    */
   getTransactionReceipt?(args: { hash: TxHash }): Promise<
     | {
@@ -257,36 +257,56 @@ export async function verifyTx(
   try {
     const tx = await args.client.getTransaction({ hash: args.hash });
     if (!tx?.input) return null;
-    const input = tx.input as Hex.Hex;
-    const outer = fromDataSuffix(input);
-    if (outer) return outer;
+    // Wrapped calls are read before the end of the outer input, and when a
+    // transaction is one, its end is never read. The end of a handleOps or
+    // execute call is the wrapper's own encoding (the last operation's
+    // signature, the intent's later fields), which a single participant can
+    // make end with the marker — it is not an account's executed suffix.
+    //
     // ERC-4337: the builder's suffix sits at the end of each UserOperation's
     // callData, which the bundler wraps inside handleOps — so it is in the
-    // middle of the outer input, not at the end. Fall back to the first
-    // tagged operation that the receipt shows was executed.
+    // middle of the outer input. Return the first tagged operation that the
+    // receipt shows was executed.
     const ops = await executedUserOps(args, tx);
-    if (ops) {
-      for (const op of ops) {
-        if (op.attribution) return { ...op.attribution, sender: op.sender };
-      }
-      return null;
-    }
+    if (ops) return firstCredited(ops);
     // Relayed intents (Porto-style EIP-7702 wallets): a relay submits the
     // account's signed intent through Orchestrator.execute, so the builder's
-    // suffix is on a call inside the intent. Fall back to the first tagged
-    // intent that the receipt shows was executed, credited to the account
-    // that signed it.
+    // suffix is on a call inside the intent. Return the first tagged intent
+    // that the receipt shows was executed, credited to the account that
+    // signed it.
     const intents = await executedIntents(args, tx);
-    if (!intents) return null;
-    for (const intent of intents) {
-      if (intent.attribution) {
-        return { ...intent.attribution, sender: intent.sender };
-      }
-    }
-    return null;
+    if (intents) return firstCredited(intents);
+    // A wrapper call to a known EntryPoint or Orchestrator that did not
+    // decode: still not a plain transaction.
+    if (isWrapperCall(args, tx)) return null;
+    return fromDataSuffix(tx.input as Hex.Hex);
   } catch {
     return null;
   }
+}
+
+function firstCredited(
+  entries: readonly { sender: `0x${string}`; attribution: DecodedSuffix | null }[],
+): DecodedSuffix | null {
+  for (const e of entries) {
+    if (e.attribution) return { ...e.attribution, sender: e.sender };
+  }
+  return null;
+}
+
+/** A handleOps call to a known EntryPoint, or an execute call to a known Orchestrator. */
+function isWrapperCall(
+  args: VerifyTxArgs,
+  tx: { input?: string; to?: string | null },
+): boolean {
+  const selector = (tx.input ?? "").slice(0, 10).toLowerCase();
+  if (knownTarget(tx.to, ENTRY_POINT_ADDRESSES, args.entryPoints)) {
+    return selector in HANDLE_OPS_BY_SELECTOR;
+  }
+  if (knownTarget(tx.to, ORCHESTRATOR_ADDRESSES, args.orchestrators)) {
+    return Object.values(ORCHESTRATOR_SELECTORS).includes(selector as Hex.Hex);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

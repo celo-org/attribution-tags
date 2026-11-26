@@ -18,8 +18,25 @@ export function taggedCall(code: string): `0x${string}` {
 }
 export const UNTAGGED_CALL = ("0xa9059cbb" + "11".repeat(64)) as `0x${string}`;
 
-export function op(sender: `0x${string}`, callData: `0x${string}`, nonce = 1n) {
-  return { sender, nonce, callData };
+const JUNK_SIGNATURE = ("0x" + "ab".repeat(65)) as `0x${string}`;
+
+export function op(
+  sender: `0x${string}`,
+  callData: `0x${string}`,
+  nonce = 1n,
+  signature: `0x${string}` = JUNK_SIGNATURE,
+) {
+  return { sender, nonce, callData, signature };
+}
+
+/**
+ * A signature a whole number of 32-byte words long that ends with the code's
+ * suffix. As the last op's signature it is the end of the handleOps input.
+ */
+export function signatureEndingWith(code: string): `0x${string}` {
+  const suffix = toDataSuffix(code).slice(2);
+  const pad = (64 - (suffix.length % 64)) % 64;
+  return ("0x" + "ab".repeat(64) + "cd".repeat(pad / 2) + suffix) as `0x${string}`;
 }
 
 /** handleOps (v0.7 layout) with the given ops. Signatures are junk: nobody signed. */
@@ -34,7 +51,7 @@ export function bundle(ops: readonly ReturnType<typeof op>[]): `0x${string}` {
       preVerificationGas: 0n,
       gasFees: ZERO32,
       paymasterAndData: "0x" as const,
-      signature: ("0x" + "ab".repeat(65)) as `0x${string}`,
+      signature: o.signature,
     })),
     BENEFICIARY,
   ]);

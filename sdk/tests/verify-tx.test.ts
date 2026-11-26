@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  fromDataSuffix,
   toDataSuffix,
   verifyIntents,
   verifyTx,
@@ -259,14 +260,13 @@ describe("verifyTx — relayed intents, real transactions with their receipts", 
     expect(SEPOLIA_PASSKEY_TO).toBe(ORCHESTRATOR_ADDRESSES.celoSepolia.toLowerCase());
   });
 
-  it("a tag at the very end of the outer input is read as for any transaction, with no sender", async () => {
-    // Unchanged behaviour: the end of the outer input is checked first. Here
-    // the tail tag is outside the account's calls, so no account is named;
-    // verifyIntents reports the intent itself as untagged.
+  it("a tag only at the very end of the outer input (an unsigned intent field) is not credited", async () => {
+    // The end of an Orchestrator call is the intent's paymentSignature, which
+    // the relay fills in and the account does not sign. The outer tail of a
+    // wrapper call is never read, so this transaction is untagged.
     const client = relayed(SEPOLIA_UNSIGNED_FIELD_INPUT, SEPOLIA_UNSIGNED_FIELD_TO, SEPOLIA_UNSIGNED_FIELD_RECEIPT);
-    const result = await verifyTx({ client: client as never, hash: HASH });
-    expect(result).toEqual({ codes: ["altana", "altana_test"], schemaId: 0 });
-    expect(result).not.toHaveProperty("sender");
+    expect(fromDataSuffix(SEPOLIA_UNSIGNED_FIELD_INPUT)).not.toBeNull(); // control: the tail does carry a tag
+    expect(await verifyTx({ client: client as never, hash: HASH })).toBeNull();
     const intents = await verifyIntents({ client: client as never, hash: HASH });
     expect(intents![0]!.attribution).toBeNull();
   });
